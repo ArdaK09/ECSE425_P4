@@ -1,0 +1,185 @@
+================================================================================
+  ECSE 425 P4 -- Pipelined RISC-V Processor
+  Team Work Plan (4 Members)
+  Due: April 14, 2026, 11:59 PM
+================================================================================
+
+OVERVIEW
+--------
+The project builds a 5-stage pipelined RV32I+M processor in VHDL across 15 .vhd
+files and a testbench. The split below groups files by dependency so each member
+can work mostly in parallel after the shared signal encodings (Components.txt) are
+agreed upon on Day 1.
+
+IMPORTANT: Before anyone writes a line of code, the entire team should read
+Components.txt together and lock in the global signal encodings (ALU_OP, WB_SEL,
+MEM_SIZE, etc.). Every file depends on them.
+
+================================================================================
+  MEMBER 1 -- Datapath Foundations
+================================================================================
+
+FILES:
+  memory.vhd              (modified PD3 model: 32-bit wide, byte-enable, 1 ns)
+  instruction_memory.vhd  (read-only wrapper; loads program.txt on init)
+  data_memory.vhd         (byte/half/word r/w; sign/zero-extend on load)
+  program_counter.vhd     (PC reg with stall enable, async reset to 0x0)
+
+RESPONSIBILITIES:
+  - Adapt the PD3 memory model: widen to 32-bit, add byte_enable port,
+    set mem_delay to 1 ns, initialize data memory to all zeros.
+  - Wrap into instruction_memory (word-addressed, memread always '1' at top
+    level, reads program.txt at initialization).
+  - Wrap into data_memory with full byte/halfword/word access and
+    sign/zero extension controlled by sign_extend and mem_size ports.
+  - Implement program_counter with pc_write stall input and async reset.
+  - Unit-test each component standalone before integration.
+
+KEY INTERFACES TO AGREE ON WITH TEAM:
+  - byte_enable encoding (see Components.txt: MEM_SIZE table)
+  - Word vs. byte addressing convention (PC is byte address; memory is word-indexed)
+
+================================================================================
+  MEMBER 2 -- Decode Stage & Control
+================================================================================
+
+FILES:
+  register_file.vhd       (32x32 regs, x0 hardwired 0, write-before-read on WB)
+  control_unit.vhd        (single-level decoder for all 23 instructions)
+  immediate_generator.vhd (sign/zero extension for I/S/B/U/J immediates)
+  branch_comparator.vhd   (evaluates beq/bne/blt/bge/bltu/bgeu in EX stage)
+
+RESPONSIBILITIES:
+  - Register file: support simultaneous read (rs1, rs2) and write (rd).
+    Write-before-read in WB guarantees the register is up to date one cycle
+    early (needed for the 2-stall RAW strategy -- confirm with Member 4).
+  - Control unit: decode opcode + funct3 + funct7 for all 23 required
+    instructions and output all control signals per Components.txt encodings.
+    NOP (addi x0,x0,0 = 0x00000013) must produce all-zero control signals.
+  - Immediate generator: handle I, S, B, U, J formats; check RISC-V card
+    carefully for which instructions zero-extend vs. sign-extend.
+  - Branch comparator: takes rs1_data, rs2_data, funct3, and branch flag;
+    outputs branch_taken. (Comparison is in EX, effect felt in MEM.)
+  - Unit-test the control unit against every instruction in the appendix.
+
+KEY INTERFACES TO AGREE ON WITH TEAM:
+  - All control signal bit widths and encodings (ALU_OP, ALU_SRC_A/B,
+    WB_SEL) -- these come straight from Components.txt.
+  - Write-back timing assumption with Member 4 (hazard detection).
+
+================================================================================
+  MEMBER 3 -- Pipeline Registers & ALU
+================================================================================
+
+FILES:
+  alu.vhd          (32-bit ALU: all RV32I ops + mul, single-cycle)
+  if_id_register.vhd   (pipeline reg IF->ID: stall + flush)
+  id_ex_register.vhd   (pipeline reg ID->EX: flush only)
+  ex_mem_register.vhd  (pipeline reg EX->MEM: flush only)
+  mem_wb_register.vhd  (pipeline reg MEM->WB: no flush)
+
+RESPONSIBILITIES:
+  - ALU: implement all 11 ALU_OP encodings from Components.txt. MUL
+    returns the lower 32 bits of the signed product. Shifts use only
+    the lower 5 bits of operand B.
+  - Pipeline registers: each register latches inputs on rising edge and
+    propagates a full set of data + control signals.
+    * IF/ID: has if_id_write (stall) and flush inputs; flush inserts NOP.
+    * ID/EX: has flush input only.
+    * EX/MEM: has flush input only.
+    * MEM/WB: no flush needed.
+  - All registers must support async reset (output <= 0 / NOP).
+  - Carefully wire every signal listed in Components.txt for each register
+    (data signals: PC, PC+4, rs1_data, rs2_data, immediate, rd_addr;
+    control signals: all decoded outputs from control_unit).
+  - Unit-test ALU against every opcode, and verify stall/flush behavior
+    on IF/ID register in isolation.
+
+KEY INTERFACES TO AGREE ON WITH TEAM:
+  - Full signal list flowing through each register (coordinate with
+    Members 2 and 4 to ensure no signal is dropped or duplicated).
+  - Flush = insert NOP (0x00000013) into IR and zero all control signals.
+
+================================================================================
+  MEMBER 4 -- Hazard Detection, Top Level & Testbench
+================================================================================
+
+FILES:
+  hazard_detection_unit.vhd  (RAW stall logic + branch/jump flush logic)
+  group_1_p4.vhd             (top-level structural entity)
+  testbench.tcl              (ModelSim script)
+
+RESPONSIBILITIES:
+  - Hazard detection unit:
+      RAW stall: stall IF and ID (pc_write='0', if_id_write='0') and flush
+      ID/EX (id_ex_flush='1') if the instruction in EX or MEM writes a
+      register that the instruction in ID reads (and reg_write is asserted).
+      Two stall cycles are inserted; write-before-read in the register file
+      handles the third cycle naturally.
+      Branch/jump flush: when mem_branch_taken OR mem_jump is asserted,
+      flush IF/ID, ID/EX, and EX/MEM (3-cycle branch penalty).
+  - Top-level (group_1_p4.vhd):
+      Instantiate all 14 sub-components and wire them together per the
+      signal map in Components.txt (see COMPONENT INSTANTIATIONS section).
+      Implement the two combinational muxes: pc_next and wb_write_data.
+      Compute pc_plus4 = pc_current + 4.
+      Wire all hazard control signals (pc_write, if_id_write, flush lines).
+  - Testbench (testbench.tcl):
+      Instantiate group_1_p4; generate 1 GHz clock (1 ns period).
+      Assert reset='1' for 2 cycles at t=0, then release.
+      Simulate for 10,000 clock cycles then stop.
+      Dump register file (32 lines) to register_file.txt.
+      Dump data memory (8192 lines) to memory.txt.
+      Each line: one 32-bit binary string (ASCII '0'/'1' chars).
+  - Integration: Member 4 is the integration owner. Pull all components
+    once they are unit-tested and wire them in group_1_p4.
+
+KEY INTERFACES TO AGREE ON WITH TEAM:
+  - Stall and flush signal names (confirm with Members 1, 2, 3 that
+    ports match exactly: pc_write, if_id_write, id_ex_flush, if_id_flush,
+    ex_mem_flush).
+  - Register-file write-before-read assumption (confirm with Member 2).
+  - Output file format (binary strings, one per line -- no spaces).
+
+================================================================================
+  SUGGESTED SCHEDULE (11 days remaining)
+================================================================================
+
+  Days 1-2  (Apr 3-4):  ALL -- read spec + Components.txt together; finalize
+                         all signal encodings; skeleton .vhd files with
+                         correct entity/port declarations committed to Git.
+
+  Days 3-5  (Apr 5-7):  Parallel unit development.
+                         M1: memory + PC
+                         M2: control + register file + imm gen
+                         M3: ALU + pipeline registers
+                         M4: hazard unit skeleton + testbench skeleton
+
+  Days 6-7  (Apr 8-9):  Integration pass 1 (no hazards).
+                         M4 wires everything in group_1_p4; test with a
+                         simple straight-line program (no branches, no hazards).
+
+  Days 8-9  (Apr 10-11): Integration pass 2.
+                          Add hazard detection; test with RAW sequences
+                          and the provided factorial example.
+
+  Days 10-11 (Apr 12-13): Full test suite; debug; comment code thoroughly.
+                           Final zip + GitHub link prepared.
+
+  Apr 14, 11:59 PM:  SUBMIT on MyCourses.
+
+================================================================================
+  SHARED CONVENTIONS (agree on Day 1)
+================================================================================
+
+  - Git branching: one branch per member; merge to main only after unit tests.
+  - Naming: all internal signals follow the stage prefix pattern in
+    Components.txt (id_*, ex_*, mem_*, wb_*).
+  - NOP constant: x"00000013" -- define once in a shared package or constant.
+  - Every file must have a header comment explaining its purpose and
+    interface. Uncommented code receives substantially less partial credit.
+  - Test each component individually before handing off to Member 4.
+
+================================================================================
+  END OF PLAN
+================================================================================
