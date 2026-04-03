@@ -1,0 +1,1069 @@
+================================================================================
+  ECSE 425 P4 -- Pipelined RISC-V Processor
+  Component Specifications
+  Group 1
+  Date: 2026-04-03
+================================================================================
+
+  Architecture: 5-stage in-order pipeline  (IF -> ID -> EX -> MEM -> WB)
+  ISA:          RV32I + RV32M (mul only, single-cycle)
+  Hazards:      RAW stall-only (no forwarding); 3-cycle branch penalty
+  Reset:        Active-high, asynchronous
+  Clock:        1 GHz (1 ns period)
+  Memory:       Byte-addressable, 8-bit wide internally (modified to 32-bit)
+  Simulator:    ModelSim, standard VHDL (IEEE numeric_std only)
+
+================================================================================
+  FILE LIST  (15 .vhd files + 1 .tcl testbench)
+================================================================================
+
+  memory.vhd                -- Modified PD3 memory model (32-bit wide)
+  program_counter.vhd       -- PC register with stall enable
+  instruction_memory.vhd    -- Instruction memory wrapper (read-only)
+  data_memory.vhd           -- Data memory wrapper (byte/half/word r/w)
+  register_file.vhd         -- 32x32-bit registers, x0 hardwired to 0
+  alu.vhd                   -- 32-bit ALU (all RV32I ops + mul)
+  control_unit.vhd          -- Single-level instruction decoder
+  immediate_generator.vhd   -- Immediate sign/zero extender
+  branch_comparator.vhd     -- Branch condition evaluator (EX stage)
+  hazard_detection_unit.vhd -- RAW stall + control flush logic
+  if_id_register.vhd        -- Pipeline register: IF -> ID
+  id_ex_register.vhd        -- Pipeline register: ID -> EX
+  ex_mem_register.vhd       -- Pipeline register: EX -> MEM
+  mem_wb_register.vhd       -- Pipeline register: MEM -> WB
+  group_1_p4.vhd            -- Top-level structural entity
+  testbench.tcl             -- ModelSim simulation script
+
+================================================================================
+  GLOBAL CONTROL SIGNAL ENCODINGS
+  (used consistently across all components)
+================================================================================
+
+  ALU_OP  (STD_LOGIC_VECTOR, 4 bits)
+  -------
+    "0000" = ADD   : result = A + B
+    "0001" = SUB   : result = A - B
+    "0010" = AND   : result = A AND B
+    "0011" = OR    : result = A OR B
+    "0100" = XOR   : result = A XOR B
+    "0101" = SLL   : result = A shifted left  by B[4:0]
+    "0110" = SRL   : result = A shifted right by B[4:0]  (logical,  zero-fill)
+    "0111" = SRA   : result = A shifted right by B[4:0]  (arithmetic, sign-fill)
+    "1000" = SLT   : result = 1 if signed(A) < signed(B), else 0
+    "1001" = SLTU  : result = 1 if unsigned(A) < unsigned(B), else 0
+    "1010" = MUL   : result = lower 32 bits of (A * B)
+
+  ALU_SRC_A  (STD_LOGIC_VECTOR, 2 bits)  -- selects ALU operand A
+  ---------
+    "00" = rs1_data          (R-type, I-type, loads, stores, branches, JALR)
+    "01" = PC                (AUIPC, JAL branch target)
+    "10" = x"00000000"       (LUI: 0 + imm = imm)
+
+  ALU_SRC_B  (STD_LOGIC, 1 bit)          -- selects ALU operand B
+  ---------
+    '0'  = rs2_data          (R-type)
+    '1'  = immediate         (I, S, B, U, J types)
+
+  WB_SEL  (STD_LOGIC_VECTOR, 2 bits)     -- selects write-back data (= mem_to_reg)
+  ------
+    "00" = ALU result        (R-type, I-type ALU, LUI, AUIPC)
+    "01" = Memory read data  (loads: lb, lh, lw, lbu, lhu)
+    "10" = PC + 4            (JAL, JALR return address)
+
+  MEM_SIZE  (STD_LOGIC_VECTOR, 2 bits)   -- memory access width
+  --------
+    "00" = byte     (8-bit:  lb, lbu, sb)
+    "01" = halfword (16-bit: lh, lhu, sh)
+    "10" = word     (32-bit: lw, sw)
+
+  NOP INSTRUCTION  (inserted as bubble)
+  ---------------
+    x"00000013"  =  addi x0, x0, 0    (opcode=0010011, rd=0, rs1=0, imm=0)
+    All control signals are 0 when this instruction is decoded.
+
+================================================================================
+  COMPONENT 1: memory.vhd
+================================================================================
+
+  Entity:   memory
+  Purpose:  Base memory model (modified from PD3). Used as a sub-component
+            inside instruction_memory and data_memory. Modified to be 32-bit
+            wide with byte-enable support. Memory delay set to 1 ns for
+            single-cycle pipeline operation.
+
+  Modification from PD3:
+    - writedata  : 7 DOWNTO 0   -->  31 DOWNTO 0
+    - readdata   : 7 DOWNTO 0   -->  31 DOWNTO 0
+    - ram_size   : 32768 bytes  -->  8192 words (32-bit each = 32768 bytes total)
+    - Added byte_enable port for partial word writes
+    - mem_delay  : 10 ns        -->  1 ns  (single-cycle)
+    - Data memory initialization: all zeros (not index-based as in PD3)
+
+  GENERIC:
+    ram_size     : INTEGER := 8192          -- number of 32-bit words
+    mem_delay    : time    := 1 ns          -- single clock cycle
+    clock_period : time    := 1 ns
+
+  PORT:
+    clock        : IN  STD_LOGIC
+    writedata    : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)   -- 32-bit write data
+    byte_enable  : IN  STD_LOGIC_VECTOR(3  DOWNTO 0)   -- byte lane enables
+                                                        -- "1111"=word, "0011"/"1100"=half
+                                                        -- "0001"/"0010"/"0100"/"1000"=byte
+    address      : IN  INTEGER RANGE 0 TO ram_size-1   -- WORD address
+    memwrite     : IN  STD_LOGIC                        -- '1' = write
+    memread      : IN  STD_LOGIC                        -- '1' = read
+    readdata     : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- 32-bit read data
+    waitrequest  : OUT STD_LOGIC                        -- '1' = not ready
+
+  INTERNAL LOGIC:
+    Internal array: MEM IS ARRAY(0 TO ram_size-1) OF STD_LOGIC_VECTOR(31 DOWNTO 0)
+    On write: apply byte_enable lanes individually to existing word
+      e.g., if byte_enable(0)='1': ram(addr)(7:0)   <= writedata(7:0)
+            if byte_enable(1)='1': ram(addr)(15:8)  <= writedata(15:8)
+            if byte_enable(2)='1': ram(addr)(23:16) <= writedata(23:16)
+            if byte_enable(3)='1': ram(addr)(31:24) <= writedata(31:24)
+    On read: readdata <= ram(read_address_reg)  (one-cycle registered read)
+    waitrequest: same mechanism as PD3, asserts low for one clock period
+
+================================================================================
+  COMPONENT 2: program_counter.vhd
+================================================================================
+
+  Entity:   program_counter
+  Purpose:  Holds the current instruction byte address. Updated each clock
+            cycle unless stalled by the hazard detection unit. Initialized
+            to 0x00000000 on reset.
+
+  PORT:
+    clk      : IN  STD_LOGIC
+    reset    : IN  STD_LOGIC                       -- active-high async: PC <= 0
+    pc_write : IN  STD_LOGIC                       -- '1'=update, '0'=hold (stall)
+    pc_next  : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- next PC (from top-level mux)
+    pc_out   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- current PC to IF stage
+
+  INTERNAL LOGIC:
+    PROCESS(clk, reset)
+      IF reset = '1':
+        pc_out <= x"00000000"
+      ELSIF rising_edge(clk):
+        IF pc_write = '1':
+          pc_out <= pc_next
+        -- If pc_write = '0': pc_out holds (stall)
+
+  NOTE on pc_next (selected in group_1_p4 top level):
+    Priority 1 (highest): taken branch or jump detected in MEM stage
+                          pc_next = ex_mem_pc_target
+    Priority 2 (default): pc_next = pc_out + 4
+    Stall (pc_write='0') overrides the register update entirely.
+
+================================================================================
+  COMPONENT 3: instruction_memory.vhd
+================================================================================
+
+  Entity:   instruction_memory
+  Purpose:  Read-only instruction memory. Stores up to 1024 instructions.
+            Accepts a 32-bit byte address (from PC), converts to word address
+            internally, and returns the full 32-bit instruction word.
+
+  GENERIC:
+    ram_size : INTEGER := 1024   -- max instructions (4096 bytes)
+
+  PORT:
+    clk         : IN  STD_LOGIC
+    reset       : IN  STD_LOGIC
+    address     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- byte address (PC value)
+    memread     : IN  STD_LOGIC                       -- '1' = fetch instruction
+    readdata    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- 32-bit instruction word
+    waitrequest : OUT STD_LOGIC                       -- from internal memory
+
+  INTERNAL LOGIC:
+    Instantiates memory.vhd with:
+      ram_size    = 1024 (words)
+      mem_delay   = 1 ns
+      memwrite    = '0'   (tied low, read-only)
+      byte_enable = "1111" (always full word)
+    Address conversion:
+      word_addr = TO_INTEGER(UNSIGNED(address(31 DOWNTO 2)))
+      (drop bottom 2 bits -- instructions are always 4-byte aligned)
+    Initialization:
+      At simulation start, load "program.txt" into internal ram array.
+      File format: one 32-bit binary string per line (e.g., "00000000000000000000000000010011")
+
+================================================================================
+  COMPONENT 4: data_memory.vhd
+================================================================================
+
+  Entity:   data_memory
+  Purpose:  Read/write data memory, 32768 bytes, all zeros at start.
+            Supports byte, halfword, and word reads and writes with
+            correct sign/zero extension for loads.
+
+  GENERIC:
+    ram_size : INTEGER := 8192   -- 8192 words x 4 bytes = 32768 bytes
+
+  PORT:
+    clk         : IN  STD_LOGIC
+    reset       : IN  STD_LOGIC
+    address     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- byte address (rs1 + imm)
+    writedata   : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- data to store (from rs2)
+    memread     : IN  STD_LOGIC                       -- '1' = load instruction
+    memwrite    : IN  STD_LOGIC                       -- '1' = store instruction
+    mem_size    : IN  STD_LOGIC_VECTOR(1  DOWNTO 0)  -- 00=byte 01=half 10=word
+    sign_extend : IN  STD_LOGIC                       -- '1'=signed, '0'=unsigned
+    readdata    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- extended read data
+    waitrequest : OUT STD_LOGIC
+
+  INTERNAL LOGIC:
+    Instantiates memory.vhd with ram_size=8192, mem_delay=1 ns.
+    Initialized to all zeros (not the PD3 index-based init).
+
+    WORD ADDRESS:  word_addr = TO_INTEGER(UNSIGNED(address(31 DOWNTO 2)))
+    BYTE OFFSET:   byte_off  = address(1 DOWNTO 0)
+
+    --- STORES (memwrite='1') ---
+    SW (mem_size="10"):
+      byte_enable = "1111"
+      writedata_internal = writedata            (full word, aligned)
+
+    SH (mem_size="01"):
+      byte_off = "00": byte_enable = "0011", writedata_internal(15:0)  = writedata(15:0)
+      byte_off = "10": byte_enable = "1100", writedata_internal(31:16) = writedata(15:0)
+      (assume halfword-aligned addresses)
+
+    SB (mem_size="00"):
+      byte_off = "00": byte_enable = "0001", writedata_internal(7:0)   = writedata(7:0)
+      byte_off = "01": byte_enable = "0010", writedata_internal(15:8)  = writedata(7:0)
+      byte_off = "10": byte_enable = "0100", writedata_internal(23:16) = writedata(7:0)
+      byte_off = "11": byte_enable = "1000", writedata_internal(31:24) = writedata(7:0)
+
+    --- LOADS (memread='1') ---
+    LW (mem_size="10"):
+      readdata = raw_readdata             (full 32-bit word, no extension needed)
+
+    LH / LHU (mem_size="01"):
+      byte_off = "00": raw_half = raw_readdata(15 DOWNTO 0)
+      byte_off = "10": raw_half = raw_readdata(31 DOWNTO 16)
+      sign_extend='1': readdata = sign_extend(raw_half) to 32 bits
+      sign_extend='0': readdata = zero_extend(raw_half) to 32 bits
+
+    LB / LBU (mem_size="00"):
+      Select byte using byte_off (0,1,2,3 -> bits 7:0, 15:8, 23:16, 31:24)
+      sign_extend='1': readdata = sign_extend(raw_byte) to 32 bits
+      sign_extend='0': readdata = zero_extend(raw_byte) to 32 bits
+
+    Output dump:
+      At end of simulation (in testbench), export all 8192 words to "memory.txt".
+      Format: one 32-bit binary string per line, 8192 lines total.
+
+================================================================================
+  COMPONENT 5: register_file.vhd
+================================================================================
+
+  Entity:   register_file
+  Purpose:  32 general-purpose 32-bit registers. x0 is permanently 0.
+            Synchronous write, combinatorial (asynchronous) read.
+            Implements internal WB->ID forwarding (write-before-read)
+            to resolve the last data hazard stage without an extra stall.
+
+  PORT:
+    clk        : IN  STD_LOGIC
+    reset      : IN  STD_LOGIC                       -- clears all registers to 0
+    -- Write port (connected to WB stage)
+    reg_write  : IN  STD_LOGIC                       -- '1' = write enabled
+    rd_addr    : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)   -- destination register index
+    write_data : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- value to write
+    -- Read port 1
+    rs1_addr   : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)   -- source register 1 index
+    rs1_data   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- source register 1 value
+    -- Read port 2
+    rs2_addr   : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)   -- source register 2 index
+    rs2_data   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- source register 2 value
+
+  INTERNAL LOGIC:
+    SIGNAL registers : ARRAY(0 TO 31) OF STD_LOGIC_VECTOR(31 DOWNTO 0)
+
+    Synchronous WRITE (clocked process):
+      PROCESS(clk, reset)
+        IF reset='1': all registers <= x"00000000"
+        ELSIF rising_edge(clk):
+          IF reg_write='1' AND rd_addr /= "00000":
+            registers(TO_INTEGER(UNSIGNED(rd_addr))) <= write_data
+      -- x0 is never written (guard: rd_addr /= "00000")
+
+    Combinatorial READ (concurrent signal assignment):
+      Internal forwarding: if WB is writing the same register being read,
+      bypass the array and return write_data directly.
+
+      rs1_data <=
+        x"00000000"  WHEN rs1_addr = "00000"
+        write_data   WHEN (reg_write='1' AND rd_addr=rs1_addr AND rd_addr/="00000")
+        registers(TO_INTEGER(UNSIGNED(rs1_addr)))  OTHERWISE
+
+      rs2_data <=
+        x"00000000"  WHEN rs2_addr = "00000"
+        write_data   WHEN (reg_write='1' AND rd_addr=rs2_addr AND rd_addr/="00000")
+        registers(TO_INTEGER(UNSIGNED(rs2_addr)))  OTHERWISE
+
+    Output dump:
+      At end of simulation (testbench), export all 32 register values to
+      "register_file.txt". Format: one 32-bit binary string per line, 32 lines.
+
+================================================================================
+  COMPONENT 6: alu.vhd
+================================================================================
+
+  Entity:   alu
+  Purpose:  Performs all arithmetic, logical, shift, comparison, and
+            multiply operations required by RV32I + mul. Purely combinatorial.
+
+  PORT:
+    alu_op    : IN  STD_LOGIC_VECTOR(3  DOWNTO 0)  -- operation select (see encoding)
+    operand_a : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- first operand
+    operand_b : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- second operand
+    result    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- computation result
+    zero      : OUT STD_LOGIC                       -- '1' if result = 0x00000000
+
+  INTERNAL LOGIC:
+    Purely combinatorial PROCESS(alu_op, operand_a, operand_b)
+
+    Use SIGNED() and UNSIGNED() casts from ieee.numeric_std.
+
+    CASE alu_op IS
+      "0000" (ADD):  result <= STD_LOGIC_VECTOR(UNSIGNED(A) + UNSIGNED(B))
+      "0001" (SUB):  result <= STD_LOGIC_VECTOR(UNSIGNED(A) - UNSIGNED(B))
+      "0010" (AND):  result <= A AND B
+      "0011" (OR):   result <= A OR B
+      "0100" (XOR):  result <= A XOR B
+      "0101" (SLL):  result <= STD_LOGIC_VECTOR(SHIFT_LEFT(UNSIGNED(A), TO_INTEGER(UNSIGNED(B(4 DOWNTO 0)))))
+      "0110" (SRL):  result <= STD_LOGIC_VECTOR(SHIFT_RIGHT(UNSIGNED(A), TO_INTEGER(UNSIGNED(B(4 DOWNTO 0)))))
+      "0111" (SRA):  result <= STD_LOGIC_VECTOR(SHIFT_RIGHT(SIGNED(A),   TO_INTEGER(UNSIGNED(B(4 DOWNTO 0)))))
+      "1000" (SLT):  result <= x"00000001" IF SIGNED(A) < SIGNED(B)    ELSE x"00000000"
+      "1001" (SLTU): result <= x"00000001" IF UNSIGNED(A) < UNSIGNED(B) ELSE x"00000000"
+      "1010" (MUL):  SIGNAL product64 : STD_LOGIC_VECTOR(63 DOWNTO 0)
+                     product64 = STD_LOGIC_VECTOR(SIGNED(A) * SIGNED(B))
+                     result <= product64(31 DOWNTO 0)
+      OTHERS:        result <= x"00000000"
+
+    zero <= '1' WHEN result = x"00000000" ELSE '0'
+
+================================================================================
+  COMPONENT 7: control_unit.vhd
+================================================================================
+
+  Entity:   control_unit
+  Purpose:  Decodes the opcode, funct3, and funct7 fields of the instruction
+            in the ID stage. Generates all pipeline control signals in a single
+            combinatorial process (no intermediate ALUOp; direct single-level).
+
+  PORT:
+    -- Instruction fields (sourced from IF/ID register)
+    opcode      : IN  STD_LOGIC_VECTOR(6 DOWNTO 0)   -- instr[6:0]
+    funct3      : IN  STD_LOGIC_VECTOR(2 DOWNTO 0)   -- instr[14:12]
+    funct7      : IN  STD_LOGIC_VECTOR(6 DOWNTO 0)   -- instr[31:25]
+    -- WB-stage controls
+    reg_write   : OUT STD_LOGIC                       -- '1' = write result to rd
+    wb_sel      : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)   -- WB_SEL (see encoding above)
+    -- MEM-stage controls
+    mem_read    : OUT STD_LOGIC                       -- '1' = load instruction
+    mem_write   : OUT STD_LOGIC                       -- '1' = store instruction
+    mem_size    : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)   -- MEM_SIZE (see encoding above)
+    sign_extend : OUT STD_LOGIC                       -- '1' = signed load
+    -- EX-stage controls
+    alu_op      : OUT STD_LOGIC_VECTOR(3 DOWNTO 0)   -- ALU operation (see encoding)
+    alu_src_a   : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)   -- ALU_SRC_A (see encoding)
+    alu_src_b   : OUT STD_LOGIC                       -- ALU_SRC_B (see encoding)
+    -- Control flow
+    branch      : OUT STD_LOGIC                       -- '1' = B-type branch
+    jump        : OUT STD_LOGIC                       -- '1' = JAL or JALR
+    jalr        : OUT STD_LOGIC                       -- '1' = JALR (clear bit 0 of target)
+
+  INTERNAL LOGIC:
+    Purely combinatorial PROCESS(opcode, funct3, funct7)
+    Default all outputs to '0' / "00" at top of process, then override per case.
+
+    CASE opcode IS
+
+      "0110011"  R-TYPE (add, sub, sll, slt, sltu, xor, srl, sra, mul):
+        reg_write='1', alu_src_a="00", alu_src_b='0', wb_sel="00"
+        mem_read='0', mem_write='0', branch='0', jump='0', jalr='0'
+        alu_op <= decode from funct3 + funct7:
+          funct3="000": "0000"(ADD) if funct7="0000000"
+                        "0001"(SUB) if funct7="0100000"
+                        "1010"(MUL) if funct7="0000001"
+          funct3="001": "0101"(SLL)
+          funct3="010": "1000"(SLT)
+          funct3="011": "1001"(SLTU)
+          funct3="100": "0100"(XOR)
+          funct3="101": "0110"(SRL) if funct7="0000000"
+                        "0111"(SRA) if funct7="0100000"
+          funct3="110": "0011"(OR)
+          funct3="111": "0010"(AND)
+
+      "0010011"  I-TYPE ALU (addi, slti, sltiu, xori, ori, andi, slli, srli, srai):
+        reg_write='1', alu_src_a="00", alu_src_b='1', wb_sel="00"
+        mem_read='0', mem_write='0', branch='0', jump='0', jalr='0'
+        alu_op <= decode from funct3 (+ funct7[5] for SRAI vs SRLI):
+          funct3="000": "0000"(ADD)   addi
+          funct3="001": "0101"(SLL)   slli
+          funct3="010": "1000"(SLT)   slti
+          funct3="011": "1001"(SLTU)  sltiu
+          funct3="100": "0100"(XOR)   xori
+          funct3="101": "0110"(SRL)   srli  if funct7(5)='0'
+                        "0111"(SRA)   srai  if funct7(5)='1'
+          funct3="110": "0011"(OR)    ori
+          funct3="111": "0010"(AND)   andi
+
+      "0000011"  LOADS (lb, lh, lw, lbu, lhu):
+        reg_write='1', alu_src_a="00", alu_src_b='1', alu_op="0000"(ADD), wb_sel="01"
+        mem_read='1', mem_write='0', branch='0', jump='0', jalr='0'
+        mem_size    <= funct3(1 DOWNTO 0)  -- "00"=byte "01"=half "10"=word
+        sign_extend <= NOT funct3(2)       -- funct3 bit 2: '1'=unsigned (lbu,lhu)
+
+      "0100011"  STORES (sb, sh, sw):
+        reg_write='0', alu_src_a="00", alu_src_b='1', alu_op="0000"(ADD)
+        mem_read='0', mem_write='1', branch='0', jump='0', jalr='0'
+        mem_size <= funct3(1 DOWNTO 0)
+
+      "1100011"  BRANCHES (beq, bne, blt, bge, bltu, bgeu):
+        reg_write='0', alu_src_a="00", alu_src_b='0', alu_op="0000"(ADD, result unused)
+        mem_read='0', mem_write='0', branch='1', jump='0', jalr='0'
+        -- ALU result not used; branch condition evaluated by branch_comparator
+        -- Branch target computed in top-level: ex_pc + ex_immediate
+
+      "1101111"  JAL:
+        reg_write='1', alu_src_a="01"(PC), alu_src_b='1'(imm), alu_op="0000"(ADD)
+        mem_read='0', mem_write='0', branch='0', jump='1', jalr='0', wb_sel="10"(PC+4)
+        -- ALU computes PC + J-imm = jump target (stored in ex_mem_pc_target)
+
+      "1100111"  JALR:
+        reg_write='1', alu_src_a="00"(rs1), alu_src_b='1'(imm), alu_op="0000"(ADD)
+        mem_read='0', mem_write='0', branch='0', jump='1', jalr='1', wb_sel="10"(PC+4)
+        -- ALU computes rs1 + I-imm; top-level clears bit 0 for actual target
+
+      "0110111"  LUI:
+        reg_write='1', alu_src_a="10"(zero), alu_src_b='1'(imm), alu_op="0000"(ADD)
+        mem_read='0', mem_write='0', branch='0', jump='0', jalr='0', wb_sel="00"
+        -- immediate_generator outputs {imm[31:12], 12'b0}; ALU: 0 + imm = imm
+
+      "0010111"  AUIPC:
+        reg_write='1', alu_src_a="01"(PC), alu_src_b='1'(imm), alu_op="0000"(ADD)
+        mem_read='0', mem_write='0', branch='0', jump='0', jalr='0', wb_sel="00"
+        -- immediate_generator outputs {imm[31:12], 12'b0}; ALU: PC + imm
+
+      OTHERS (unrecognized opcode):
+        All outputs <= '0' / "00" (safe NOP behavior)
+
+================================================================================
+  COMPONENT 8: immediate_generator.vhd
+================================================================================
+
+  Entity:   immediate_generator
+  Purpose:  Extracts and sign-extends (or zero-extends for U-type) the
+            immediate value embedded in the instruction encoding.
+            Purely combinatorial. One component handles all formats.
+
+  PORT:
+    instruction : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- full instruction word
+    immediate   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- extended immediate
+
+  INTERNAL LOGIC:
+    Purely combinatorial PROCESS(instruction)
+    Decode format based on opcode = instruction(6 DOWNTO 0)
+
+    I-TYPE  (opcode: 0010011=ALU-imm, 0000011=loads, 1100111=JALR):
+      imm(11:0)  = instruction(31:20)
+      imm(31:12) = instruction(31) repeated  (sign extension)
+      NOTE for shift immediates (slli, srli, srai):
+        Only imm[4:0] is used as shamt; upper bits still sign-extended but ALU
+        uses only operand_b(4:0) for shift amount.
+
+    S-TYPE  (opcode: 0100011=stores):
+      imm(4:0)   = instruction(11:7)
+      imm(11:5)  = instruction(31:25)
+      imm(31:12) = instruction(31) repeated  (sign extension)
+
+    B-TYPE  (opcode: 1100011=branches):
+      imm(0)     = '0'                           (always 0, 2-byte alignment)
+      imm(4:1)   = instruction(11:8)
+      imm(10:5)  = instruction(30:25)
+      imm(11)    = instruction(7)
+      imm(12)    = instruction(31)
+      imm(31:13) = instruction(31) repeated      (sign extension)
+
+    U-TYPE  (opcode: 0110111=LUI, 0010111=AUIPC):
+      imm(11:0)  = "000000000000"                (lower 12 bits zeroed)
+      imm(31:12) = instruction(31:12)            (NO sign extension needed)
+
+    J-TYPE  (opcode: 1101111=JAL):
+      imm(0)     = '0'                           (always 0, 2-byte alignment)
+      imm(10:1)  = instruction(30:21)
+      imm(11)    = instruction(20)
+      imm(19:12) = instruction(19:12)
+      imm(20)    = instruction(31)
+      imm(31:21) = instruction(31) repeated      (sign extension)
+
+    DEFAULT:
+      immediate <= x"00000000"
+
+================================================================================
+  COMPONENT 9: branch_comparator.vhd
+================================================================================
+
+  Entity:   branch_comparator
+  Purpose:  Evaluates branch conditions in the EX stage. Separate from the
+            ALU to avoid overloading it during branch instructions. Compares
+            the two source registers and asserts branch_taken based on funct3.
+
+  PORT:
+    rs1_data     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- rs1 (from ID/EX register)
+    rs2_data     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- rs2 (from ID/EX register)
+    funct3       : IN  STD_LOGIC_VECTOR(2  DOWNTO 0)  -- branch type (from ID/EX register)
+    branch       : IN  STD_LOGIC                       -- '1' = current instr is branch
+    branch_taken : OUT STD_LOGIC                       -- '1' = condition met, take branch
+
+  INTERNAL LOGIC:
+    Purely combinatorial PROCESS(rs1_data, rs2_data, funct3, branch)
+
+    IF branch = '0': branch_taken <= '0'
+    ELSE:
+      CASE funct3 IS
+        "000" (BEQ):  branch_taken <= '1' WHEN rs1_data = rs2_data
+        "001" (BNE):  branch_taken <= '1' WHEN rs1_data /= rs2_data
+        "100" (BLT):  branch_taken <= '1' WHEN SIGNED(rs1_data) < SIGNED(rs2_data)
+        "101" (BGE):  branch_taken <= '1' WHEN SIGNED(rs1_data) >= SIGNED(rs2_data)
+        "110" (BLTU): branch_taken <= '1' WHEN UNSIGNED(rs1_data) < UNSIGNED(rs2_data)
+        "111" (BGEU): branch_taken <= '1' WHEN UNSIGNED(rs1_data) >= UNSIGNED(rs2_data)
+        OTHERS:       branch_taken <= '0'
+
+================================================================================
+  COMPONENT 10: hazard_detection_unit.vhd
+================================================================================
+
+  Entity:   hazard_detection_unit
+  Purpose:  Detects data hazards (RAW) and control hazards. Generates stall
+            signals to freeze the upper pipeline stages and flush signals to
+            insert NOP bubbles. No forwarding: stall until result is in WB,
+            relying on register_file's internal write-before-read to handle
+            the final (MEM/WB -> ID) hazard stage.
+
+  PORT:
+    -- Instruction currently in ID stage (from IF/ID register)
+    if_id_rs1        : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)  -- rs1 register index
+    if_id_rs2        : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)  -- rs2 register index
+    -- Instruction currently in EX stage (from ID/EX register)
+    id_ex_rd         : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)  -- destination register index
+    id_ex_reg_write  : IN  STD_LOGIC                      -- '1' = EX writes a register
+    -- Instruction currently in MEM stage (from EX/MEM register)
+    ex_mem_rd        : IN  STD_LOGIC_VECTOR(4 DOWNTO 0)  -- destination register index
+    ex_mem_reg_write : IN  STD_LOGIC                      -- '1' = MEM writes a register
+    -- Control hazard: taken branch/jump detected (EX/MEM register output)
+    branch_jump_taken : IN STD_LOGIC                      -- '1' = redirect PC
+    -- Stall outputs (to PC, IF/ID register, and ID/EX register)
+    pc_write         : OUT STD_LOGIC                      -- '0' = hold PC
+    if_id_write      : OUT STD_LOGIC                      -- '0' = hold IF/ID register
+    id_ex_flush      : OUT STD_LOGIC                      -- '1' = insert NOP into ID/EX
+    -- Flush outputs (to IF/ID and ID/EX on taken branch/jump)
+    if_id_flush      : OUT STD_LOGIC                      -- '1' = flush IF/ID to NOP
+    ex_mem_flush     : OUT STD_LOGIC                      -- '1' = flush EX/MEM to NOP
+
+  INTERNAL LOGIC:
+    Purely combinatorial PROCESS(all inputs)
+
+    --- DATA HAZARD CHECK ---
+    stall_raw <= '1' WHEN:
+      (id_ex_reg_write  = '1' AND id_ex_rd  /= "00000" AND
+       (id_ex_rd  = if_id_rs1 OR id_ex_rd  = if_id_rs2))
+      OR
+      (ex_mem_reg_write = '1' AND ex_mem_rd /= "00000" AND
+       (ex_mem_rd = if_id_rs1 OR ex_mem_rd = if_id_rs2))
+    stall_raw <= '0' OTHERWISE
+
+    -- On stall: freeze PC and IF/ID; flush ID/EX (insert bubble at EX)
+    pc_write    <= NOT stall_raw
+    if_id_write <= NOT stall_raw
+    id_ex_flush <= stall_raw        -- bubble replaces instruction entering EX
+
+    --- CONTROL HAZARD CHECK (3-cycle branch penalty) ---
+    -- branch_jump_taken comes from EX/MEM register (branch now in MEM stage)
+    -- Three wrong instructions are in EX, ID, IF -- flush all three:
+    if_id_flush  <= branch_jump_taken   -- flush instruction in ID (wrong path)
+    ex_mem_flush <= branch_jump_taken   -- neutralize any accidental mem/reg write signals
+    -- id_ex_flush also asserted on branch_jump_taken (combined with stall_raw):
+    id_ex_flush  <= stall_raw OR branch_jump_taken
+
+    NOTE: WB->ID hazard is resolved transparently by register_file's internal
+    write-before-read bypass. No stall is needed for that stage.
+
+    NOTE: When a stall and a branch_jump_taken coincide, branch flush takes
+    priority (the stall becomes irrelevant since we are redirecting the PC).
+
+================================================================================
+  COMPONENT 11: if_id_register.vhd
+================================================================================
+
+  Entity:   if_id_register
+  Purpose:  Pipeline register sitting between the IF and ID stages. Latches
+            the fetched instruction and the PC value on each rising clock edge,
+            unless stalled or flushed.
+
+  PORT:
+    clk            : IN  STD_LOGIC
+    reset          : IN  STD_LOGIC
+    -- Hazard control
+    if_id_write    : IN  STD_LOGIC                       -- '0' = hold (stall)
+    flush          : IN  STD_LOGIC                       -- '1' = insert NOP
+    -- Inputs (from IF stage)
+    pc_in          : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- current PC value
+    pc_plus4_in    : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- PC + 4
+    instruction_in : IN  STD_LOGIC_VECTOR(31 DOWNTO 0)  -- fetched instruction word
+    -- Outputs (to ID stage)
+    pc_out         : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+    pc_plus4_out   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+    instruction_out: OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+
+  INTERNAL LOGIC:
+    PROCESS(clk, reset)
+      IF reset = '1':
+        pc_out          <= x"00000000"
+        pc_plus4_out    <= x"00000004"
+        instruction_out <= x"00000013"   -- NOP: addi x0, x0, 0
+      ELSIF rising_edge(clk):
+        IF flush = '1':
+          instruction_out <= x"00000013"
+          pc_out          <= x"00000000"
+          pc_plus4_out    <= x"00000000"
+        ELSIF if_id_write = '1':
+          pc_out          <= pc_in
+          pc_plus4_out    <= pc_plus4_in
+          instruction_out <= instruction_in
+        -- else: hold all outputs (stall)
+
+================================================================================
+  COMPONENT 12: id_ex_register.vhd
+================================================================================
+
+  Entity:   id_ex_register
+  Purpose:  Pipeline register between the ID and EX stages. Carries all
+            decoded control signals and data values from ID into EX.
+            Flushed (all controls -> 0) on stall or branch/jump taken.
+
+  PORT:
+    clk             : IN  STD_LOGIC
+    reset           : IN  STD_LOGIC
+    flush           : IN  STD_LOGIC   -- '1' = insert NOP bubble (stall or branch flush)
+
+    -- WB control group (flows all the way to WB)
+    reg_write_in    : IN  STD_LOGIC;       reg_write_out    : OUT STD_LOGIC
+    wb_sel_in       : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    wb_sel_out      : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+
+    -- MEM control group (used in MEM stage)
+    mem_read_in     : IN  STD_LOGIC;       mem_read_out     : OUT STD_LOGIC
+    mem_write_in    : IN  STD_LOGIC;       mem_write_out    : OUT STD_LOGIC
+    mem_size_in     : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    mem_size_out    : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+    sign_extend_in  : IN  STD_LOGIC;       sign_extend_out  : OUT STD_LOGIC
+
+    -- EX control group (used in EX stage, not needed downstream)
+    alu_op_in       : IN  STD_LOGIC_VECTOR(3 DOWNTO 0);
+    alu_op_out      : OUT STD_LOGIC_VECTOR(3 DOWNTO 0)
+    alu_src_a_in    : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    alu_src_a_out   : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+    alu_src_b_in    : IN  STD_LOGIC;       alu_src_b_out    : OUT STD_LOGIC
+    branch_in       : IN  STD_LOGIC;       branch_out       : OUT STD_LOGIC
+    jump_in         : IN  STD_LOGIC;       jump_out         : OUT STD_LOGIC
+    jalr_in         : IN  STD_LOGIC;       jalr_out         : OUT STD_LOGIC
+
+    -- Data values
+    pc_in           : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    pc_out          : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)    -- PC of this instruction
+    pc_plus4_in     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    pc_plus4_out    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)    -- PC+4 (for JAL/JALR rd)
+    rs1_data_in     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    rs1_data_out    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+    rs2_data_in     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    rs2_data_out    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+    immediate_in    : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    immediate_out   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
+
+    -- Register addresses (needed for hazard detection downstream)
+    rs1_addr_in     : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);
+    rs1_addr_out    : OUT STD_LOGIC_VECTOR(4 DOWNTO 0)
+    rs2_addr_in     : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);
+    rs2_addr_out    : OUT STD_LOGIC_VECTOR(4 DOWNTO 0)
+    rd_addr_in      : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);
+    rd_addr_out     : OUT STD_LOGIC_VECTOR(4 DOWNTO 0)
+    funct3_in       : IN  STD_LOGIC_VECTOR(2 DOWNTO 0);
+    funct3_out      : OUT STD_LOGIC_VECTOR(2 DOWNTO 0)   -- for branch_comparator
+
+  INTERNAL LOGIC:
+    PROCESS(clk, reset)
+      IF reset = '1': all control outputs <= '0'/"00"/"0000"; data <= 0
+      ELSIF rising_edge(clk):
+        IF flush = '1':
+          -- Insert NOP bubble: zero all control signals so instruction
+          -- entering EX does nothing (no reg write, no mem access, no branch)
+          reg_write_out  <= '0'
+          wb_sel_out     <= "00"
+          mem_read_out   <= '0'
+          mem_write_out  <= '0'
+          branch_out     <= '0'
+          jump_out       <= '0'
+          jalr_out       <= '0'
+          -- data signals can be zeroed too
+          all data outputs <= x"00000000" or "00000"
+        ELSE:
+          -- Normal latch: capture all inputs
+          all outputs <= all inputs
+
+================================================================================
+  COMPONENT 13: ex_mem_register.vhd
+================================================================================
+
+  Entity:   ex_mem_register
+  Purpose:  Pipeline register between the EX and MEM stages. Carries the
+            ALU result, branch/jump decision, and control signals forward.
+            Flushed on taken branch/jump (ex_mem_flush from hazard unit).
+
+  PORT:
+    clk              : IN  STD_LOGIC
+    reset            : IN  STD_LOGIC
+    flush            : IN  STD_LOGIC   -- '1' = neutralize (from hazard unit)
+
+    -- WB control group
+    reg_write_in     : IN  STD_LOGIC;       reg_write_out     : OUT STD_LOGIC
+    wb_sel_in        : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    wb_sel_out       : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+
+    -- MEM control group
+    mem_read_in      : IN  STD_LOGIC;       mem_read_out      : OUT STD_LOGIC
+    mem_write_in     : IN  STD_LOGIC;       mem_write_out     : OUT STD_LOGIC
+    mem_size_in      : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    mem_size_out     : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+    sign_extend_in   : IN  STD_LOGIC;       sign_extend_out   : OUT STD_LOGIC
+
+    -- Branch/jump resolution (from EX stage)
+    branch_taken_in  : IN  STD_LOGIC;       branch_taken_out  : OUT STD_LOGIC
+    jump_in          : IN  STD_LOGIC;       jump_out          : OUT STD_LOGIC
+    pc_target_in     : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    pc_target_out    : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- redirect target for PC
+
+    -- Data
+    alu_result_in    : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    alu_result_out   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- mem address OR wb data
+    rs2_data_in      : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    rs2_data_out     : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- data to store (for SW/SH/SB)
+    pc_plus4_in      : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    pc_plus4_out     : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- return address (JAL/JALR)
+    rd_addr_in       : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);
+    rd_addr_out      : OUT STD_LOGIC_VECTOR(4 DOWNTO 0)    -- for WB and hazard detection
+
+  INTERNAL LOGIC:
+    PROCESS(clk, reset)
+      IF reset = '1': all outputs <= '0'
+      ELSIF rising_edge(clk):
+        IF flush = '1':
+          -- Neutralize: prevent accidental register write or memory access
+          reg_write_out    <= '0'
+          mem_read_out     <= '0'
+          mem_write_out    <= '0'
+          branch_taken_out <= '0'
+          jump_out         <= '0'
+          wb_sel_out       <= "00"
+          -- Data outputs may be zeroed too
+        ELSE:
+          all outputs <= all inputs
+
+================================================================================
+  COMPONENT 14: mem_wb_register.vhd
+================================================================================
+
+  Entity:   mem_wb_register
+  Purpose:  Pipeline register between the MEM and WB stages. Carries the
+            memory read data and/or ALU result to the write-back mux.
+            No flush logic needed here (all flushes handled upstream).
+
+  PORT:
+    clk              : IN  STD_LOGIC
+    reset            : IN  STD_LOGIC
+
+    -- WB control group
+    reg_write_in     : IN  STD_LOGIC;       reg_write_out     : OUT STD_LOGIC
+    wb_sel_in        : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);
+    wb_sel_out       : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
+
+    -- Data
+    mem_readdata_in  : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    mem_readdata_out : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- from data_memory
+    alu_result_in    : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    alu_result_out   : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- from EX stage
+    pc_plus4_in      : IN  STD_LOGIC_VECTOR(31 DOWNTO 0);
+    pc_plus4_out     : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)   -- return addr (JAL/JALR)
+    rd_addr_in       : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);
+    rd_addr_out      : OUT STD_LOGIC_VECTOR(4 DOWNTO 0)    -- destination register
+
+  INTERNAL LOGIC:
+    PROCESS(clk, reset)
+      IF reset = '1': all outputs <= '0'
+      ELSIF rising_edge(clk):
+        all outputs <= all inputs    -- simple latch, no flush needed
+
+================================================================================
+  COMPONENT 15: group_1_p4.vhd  [TOP LEVEL]
+================================================================================
+
+  Entity:   group_1_p4
+  Purpose:  Structural top level. Instantiates and wires all 13 sub-components.
+            Contains the PC mux, ALU input muxes, WB data mux, and the
+            branch/jump target adder as concurrent signal assignments.
+            No behavioral logic other than these muxes.
+
+  PORT:
+    clk   : IN  STD_LOGIC
+    reset : IN  STD_LOGIC   -- active-high asynchronous
+
+  KEY INTERNAL SIGNALS:
+    -- IF Stage
+    pc_current      : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- PC output
+    pc_plus4        : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- PC + 4
+    pc_next         : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- muxed next PC
+    instr_fetch     : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- from instruction_memory
+
+    -- IF/ID outputs
+    if_id_pc        : STD_LOGIC_VECTOR(31 DOWNTO 0)
+    if_id_pc4       : STD_LOGIC_VECTOR(31 DOWNTO 0)
+    if_id_instr     : STD_LOGIC_VECTOR(31 DOWNTO 0)
+
+    -- ID Stage (decoded instruction fields)
+    id_opcode       : STD_LOGIC_VECTOR(6 DOWNTO 0)   -- if_id_instr[6:0]
+    id_funct3       : STD_LOGIC_VECTOR(2 DOWNTO 0)   -- if_id_instr[14:12]
+    id_funct7       : STD_LOGIC_VECTOR(6 DOWNTO 0)   -- if_id_instr[31:25]
+    id_rs1_addr     : STD_LOGIC_VECTOR(4 DOWNTO 0)   -- if_id_instr[19:15]
+    id_rs2_addr     : STD_LOGIC_VECTOR(4 DOWNTO 0)   -- if_id_instr[24:20]
+    id_rd_addr      : STD_LOGIC_VECTOR(4 DOWNTO 0)   -- if_id_instr[11:7]
+    id_rs1_data     : STD_LOGIC_VECTOR(31 DOWNTO 0)  -- from register_file
+    id_rs2_data     : STD_LOGIC_VECTOR(31 DOWNTO 0)  -- from register_file
+    id_immediate    : STD_LOGIC_VECTOR(31 DOWNTO 0)  -- from immediate_generator
+    -- All control signals from control_unit: id_reg_write, id_wb_sel,
+    -- id_mem_read, id_mem_write, id_mem_size, id_sign_extend,
+    -- id_alu_op, id_alu_src_a, id_alu_src_b, id_branch, id_jump, id_jalr
+
+    -- ID/EX outputs (prefix: ex_)
+    ex_pc, ex_pc4, ex_rs1_data, ex_rs2_data, ex_immediate
+    ex_rs1_addr, ex_rs2_addr, ex_rd_addr, ex_funct3
+    ex_reg_write, ex_wb_sel, ex_mem_read, ex_mem_write,
+    ex_mem_size, ex_sign_extend, ex_alu_op, ex_alu_src_a,
+    ex_alu_src_b, ex_branch, ex_jump, ex_jalr
+
+    -- EX Stage computed signals
+    alu_a           : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- muxed ALU input A
+    alu_b           : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- muxed ALU input B
+    alu_result      : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- from alu
+    ex_branch_taken : STD_LOGIC                        -- from branch_comparator
+    ex_pc_target    : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- computed jump/branch target
+    ex_redirect     : STD_LOGIC                        -- branch_taken OR jump
+
+    -- EX/MEM outputs (prefix: mem_)
+    mem_reg_write, mem_wb_sel, mem_mem_read, mem_mem_write,
+    mem_mem_size, mem_sign_extend, mem_branch_taken, mem_jump,
+    mem_pc_target, mem_alu_result, mem_rs2_data, mem_pc4, mem_rd_addr
+
+    -- MEM Stage
+    dmem_readdata   : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- from data_memory
+
+    -- MEM/WB outputs (prefix: wb_)
+    wb_reg_write, wb_wb_sel
+    wb_mem_readdata, wb_alu_result, wb_pc4, wb_rd_addr
+
+    -- WB Stage
+    wb_write_data   : STD_LOGIC_VECTOR(31 DOWNTO 0)   -- muxed write-back value
+
+    -- Hazard signals
+    sig_pc_write    : STD_LOGIC
+    sig_if_id_write : STD_LOGIC
+    sig_id_ex_flush : STD_LOGIC
+    sig_if_id_flush : STD_LOGIC
+    sig_ex_mem_flush: STD_LOGIC
+
+  CONCURRENT SIGNAL ASSIGNMENTS (datapath logic inline in top level):
+
+    -- PC + 4 adder
+    pc_plus4 <= STD_LOGIC_VECTOR(UNSIGNED(pc_current) + 4)
+
+    -- PC next mux (branch/jump takes priority over normal increment)
+    ex_redirect <= mem_branch_taken OR mem_jump
+    pc_next     <= mem_pc_target WHEN ex_redirect = '1' ELSE pc_plus4
+
+    -- Instruction field extraction (from IF/ID register)
+    id_opcode   <= if_id_instr(6  DOWNTO 0)
+    id_funct3   <= if_id_instr(14 DOWNTO 12)
+    id_funct7   <= if_id_instr(31 DOWNTO 25)
+    id_rs1_addr <= if_id_instr(19 DOWNTO 15)
+    id_rs2_addr <= if_id_instr(24 DOWNTO 20)
+    id_rd_addr  <= if_id_instr(11 DOWNTO 7)
+
+    -- ALU input A mux (alu_src_a from ID/EX register)
+    alu_a <= ex_rs1_data        WHEN ex_alu_src_a = "00"
+        ELSE ex_pc              WHEN ex_alu_src_a = "01"
+        ELSE x"00000000"        -- "10": for LUI
+
+    -- ALU input B mux (alu_src_b from ID/EX register)
+    alu_b <= ex_rs2_data        WHEN ex_alu_src_b = '0'
+        ELSE ex_immediate
+
+    -- Branch / jump PC target computation
+    -- For branches and JAL: target = PC_of_instruction + B/J-type immediate
+    -- For JALR:             target = (rs1 + I-imm) AND 0xFFFFFFFE (bit 0 cleared)
+    ex_pc_target <=
+      STD_LOGIC_VECTOR(UNSIGNED(alu_result) AND x"FFFFFFFE")
+                                          WHEN ex_jalr    = '1'
+      ELSE STD_LOGIC_VECTOR(UNSIGNED(ex_pc) + UNSIGNED(ex_immediate))
+                                          WHEN (ex_branch = '1' OR ex_jump = '1')
+      ELSE x"00000000"
+
+    -- Combined redirect flag passed to EX/MEM register
+    ex_redirect_flag <= ex_branch_taken OR ex_jump
+
+    -- WB data mux (wb_sel from MEM/WB register)
+    wb_write_data <= wb_mem_readdata WHEN wb_wb_sel = "01"
+                ELSE wb_pc4          WHEN wb_wb_sel = "10"
+                ELSE wb_alu_result   -- "00": ALU result (default)
+
+  COMPONENT INSTANTIATIONS:
+
+    U_PC      : program_counter
+      clk       => clk,       reset   => reset
+      pc_write  => sig_pc_write
+      pc_next   => pc_next,   pc_out  => pc_current
+
+    U_IMEM    : instruction_memory
+      clk       => clk,       reset     => reset
+      address   => pc_current
+      memread   => '1'        -- always fetching
+      readdata  => instr_fetch
+      waitrequest => open     -- 1-cycle memory; ignored in pipeline timing
+
+    U_IFID    : if_id_register
+      clk             => clk,           reset           => reset
+      if_id_write     => sig_if_id_write
+      flush           => sig_if_id_flush
+      pc_in           => pc_current,    pc_out          => if_id_pc
+      pc_plus4_in     => pc_plus4,      pc_plus4_out    => if_id_pc4
+      instruction_in  => instr_fetch,   instruction_out => if_id_instr
+
+    U_REGFILE : register_file
+      clk        => clk,         reset      => reset
+      reg_write  => wb_reg_write
+      rd_addr    => wb_rd_addr,  write_data => wb_write_data
+      rs1_addr   => id_rs1_addr, rs1_data   => id_rs1_data
+      rs2_addr   => id_rs2_addr, rs2_data   => id_rs2_data
+
+    U_CTRL    : control_unit
+      opcode => id_opcode, funct3 => id_funct3, funct7 => id_funct7
+      reg_write   => id_reg_write,  wb_sel      => id_wb_sel
+      mem_read    => id_mem_read,   mem_write   => id_mem_write
+      mem_size    => id_mem_size,   sign_extend => id_sign_extend
+      alu_op      => id_alu_op,     alu_src_a   => id_alu_src_a
+      alu_src_b   => id_alu_src_b,  branch      => id_branch
+      jump        => id_jump,       jalr        => id_jalr
+
+    U_IMMGEN  : immediate_generator
+      instruction => if_id_instr,   immediate => id_immediate
+
+    U_IDEX    : id_ex_register
+      clk => clk, reset => reset, flush => sig_id_ex_flush
+      [all id_* control and data signals on inputs]
+      [all ex_* control and data signals on outputs]
+
+    U_ALU     : alu
+      alu_op    => ex_alu_op
+      operand_a => alu_a,         operand_b => alu_b
+      result    => alu_result,    zero      => open
+
+    U_BRANCH  : branch_comparator
+      rs1_data     => ex_rs1_data,  rs2_data     => ex_rs2_data
+      funct3       => ex_funct3,    branch       => ex_branch
+      branch_taken => ex_branch_taken
+
+    U_EXMEM   : ex_mem_register
+      clk => clk, reset => reset, flush => sig_ex_mem_flush
+      branch_taken_in  => ex_branch_taken
+      jump_in          => ex_jump
+      pc_target_in     => ex_pc_target
+      alu_result_in    => alu_result
+      rs2_data_in      => ex_rs2_data
+      pc_plus4_in      => ex_pc4
+      rd_addr_in       => ex_rd_addr
+      [all mem_ outputs]
+
+    U_DMEM    : data_memory
+      clk         => clk,             reset       => reset
+      address     => mem_alu_result   -- memory byte address = ALU result
+      writedata   => mem_rs2_data
+      memread     => mem_mem_read,    memwrite    => mem_mem_write
+      mem_size    => mem_mem_size,    sign_extend => mem_sign_extend
+      readdata    => dmem_readdata
+      waitrequest => open
+
+    U_MEMWB   : mem_wb_register
+      clk => clk, reset => reset
+      mem_readdata_in => dmem_readdata
+      alu_result_in   => mem_alu_result
+      pc_plus4_in     => mem_pc4
+      rd_addr_in      => mem_rd_addr
+      [all wb_* control and data outputs]
+
+    U_HAZARD  : hazard_detection_unit
+      if_id_rs1         => id_rs1_addr
+      if_id_rs2         => id_rs2_addr
+      id_ex_rd          => ex_rd_addr
+      id_ex_reg_write   => ex_reg_write
+      ex_mem_rd         => mem_rd_addr
+      ex_mem_reg_write  => mem_reg_write
+      branch_jump_taken => mem_branch_taken OR mem_jump   -- combined redirect flag
+      pc_write          => sig_pc_write
+      if_id_write       => sig_if_id_write
+      id_ex_flush       => sig_id_ex_flush
+      if_id_flush       => sig_if_id_flush
+      ex_mem_flush      => sig_ex_mem_flush
+
+================================================================================
+  PIPELINE TIMING SUMMARY
+================================================================================
+
+  Cycle N:   Instruction A in IF
+  Cycle N+1: A in ID,  B in IF
+  Cycle N+2: A in EX,  B in ID,  C in IF
+  Cycle N+3: A in MEM, B in EX,  C in ID,  D in IF
+  Cycle N+4: A in WB,  B in MEM, C in EX,  D in ID,  E in IF
+
+  RAW STALL EXAMPLE (A writes x1, B reads x1 -- no forwarding):
+  Cycle N:   A in EX   --> stall_raw asserted (A in EX, B in ID)
+  Cycle N+1: A in MEM  --> stall_raw asserted (A in MEM, B still in ID)
+  Cycle N+2: A in WB   --> no hazard; reg_file write-before-read handles it
+             B now advances to EX (2 stall cycles inserted)
+
+  BRANCH TAKEN EXAMPLE (branch B resolved in EX; effect in MEM = 3-cycle penalty):
+  Cycle K:   B in EX   (branch condition computed, branch_taken known)
+  Cycle K+1: B in MEM  --> ex_mem_flush, if_id_flush, id_ex_flush all asserted
+             Instructions K+1, K+2, K+3 (in EX, ID, IF) flushed to NOP
+             PC redirected to branch target starting next cycle
+
+================================================================================
+  TESTBENCH NOTES (testbench.tcl)
+================================================================================
+
+  - Instantiate group_1_p4 as device under test
+  - Clock period: 1 ns (1 GHz), generate with always block
+  - At t=0: apply reset='1' for 2 clock cycles, then reset='0'
+  - Load "program.txt" into instruction_memory before simulation start
+    (in VHDL: read file in instruction_memory architecture initialization)
+  - Simulate for 10,000 clock cycles (10,000 ns), then STOP
+  - After stop: dump register_file contents to "register_file.txt" (32 lines)
+  - After stop: dump data_memory contents to "memory.txt" (8192 lines)
+  - All output files: one 32-bit binary string per line (ASCII '0'/'1' chars)
+
+================================================================================
+  END OF COMPONENT SPECIFICATIONS
+================================================================================
