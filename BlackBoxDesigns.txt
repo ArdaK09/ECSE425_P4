@@ -1,0 +1,100 @@
+Instruction Memory:
+entity instruction_memory is
+    port (
+        pc  : in  std_logic_vector(31 downto 0);  
+        instruction : out std_logic_vector(31 downto 0); 
+    );
+end entity;
+
+
+Register File:
+entity register_file is
+    port (
+        clk      : in  std_logic;
+        RegWrite : in  std_logic;                      -- write enable
+        rs1      : in  std_logic_vector(4 downto 0);   -- read address 1
+        rs2      : in  std_logic_vector(4 downto 0);   -- read address 2
+        rd       : in  std_logic_vector(4 downto 0);   -- write address
+        rd_data  : in  std_logic_vector(31 downto 0);  -- write data
+        rs1_data : out std_logic_vector(31 downto 0);  -- read data 1
+        rs2_data : out std_logic_vector(31 downto 0)   -- read data 2
+    );
+end entity;
+
+
+Sign Extend:
+entity sign_extend is
+    port (
+        instruction : in  std_logic_vector(31 downto 0);
+        instr_type  : in  std_logic_vector(2 downto 0);  --I, S, B, U, J  
+        imm_out     : out std_logic_vector(31 downto 0)
+    );
+end entity;
+
+Branch:
+entity branch is
+    port (
+        rs1_data  : in  std_logic_vector(31 downto 0);
+        rs2_data  : in  std_logic_vector(31 downto 0);
+        funct3    : in  std_logic_vector(2 downto 0);  -- which comparison
+        taken     : out std_logic                       -- branch taken?
+    );
+end entity;
+
+
+ALU:
+entity alu is
+    port (
+        a        : in  std_logic_vector(31 downto 0);
+        b        : in  std_logic_vector(31 downto 0);
+        **alu_ctrl : in  std_logic_vector(3 downto 0);  -- operation select
+        result   : out std_logic_vector(31 downto 0);
+        zero     : out std_logic                       -- result = 0?
+    );
+end entity;
+
+
+2 to 1 MUX:
+entity mux2 is
+    port (
+        in0    : in  std_logic_vector(31 downto 0);
+        in1    : in  std_logic_vector(31 downto 0);
+        sel    : in  std_logic;
+        output : out std_logic_vector(31 downto 0)
+    );
+end entity;
+
+
+PC:
+entity program_counter is
+    port (
+        clk     : in  std_logic;
+        stall   : in  std_logic;                      -- hold PC on hazard
+        pc_next : in  std_logic_vector(31 downto 0);
+        pc_out  : out std_logic_vector(31 downto 0)
+    );
+end entity;
+
+
+Instruction Decoder:
+entity instruction_decoder is
+    port (
+        instruction : in  std_logic_vector(31 downto 0);
+
+        -- fields extracted directly from instruction bits
+        opcode      : out std_logic_vector(6 downto 0);   -- bits [6:0]
+        rd          : out std_logic_vector(4 downto 0);   -- bits [11:7]
+        funct3      : out std_logic_vector(2 downto 0);   -- bits [14:12]
+        rs1         : out std_logic_vector(4 downto 0);   -- bits [19:15]
+        rs2         : out std_logic_vector(4 downto 0);   -- bits [24:20]
+        funct7      : out std_logic_vector(6 downto 0);   -- bits [31:25]
+
+        -- instruction format type (for sign extender)
+        instr_type  : out std_logic_vector(2 downto 0)    -- I, S, B, U, J, R
+    );
+end entity;
+
+
+
+
+	
