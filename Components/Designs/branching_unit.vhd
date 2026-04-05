@@ -16,8 +16,6 @@ USE ieee.numeric_std.all;
 --        "001" (BNE):  branch_taken <= '1' WHEN rs1_data /= rs2_data
 --        "100" (BLT):  branch_taken <= '1' WHEN SIGNED(rs1_data) < SIGNED(rs2_data)
 --        "101" (BGE):  branch_taken <= '1' WHEN SIGNED(rs1_data) >= SIGNED(rs2_data)
---        "110" (BLTU): branch_taken <= '1' WHEN UNSIGNED(rs1_data) < UNSIGNED(rs2_data)
---        "111" (BGEU): branch_taken <= '1' WHEN UNSIGNED(rs1_data) >= UNSIGNED(rs2_data)
 --        OTHERS:       branch_taken <= '0'
 
 
@@ -64,20 +62,6 @@ BEGIN
 					
 				WHEN "101" => -- BGE
 					IF (SIGNED(rs1_data) >= SIGNED(rs2_data)) THEN 
-						branch_taken <= '1';
-					ELSE
-						branch_taken <= '0';
-					END IF;
-					
-				WHEN "110" => -- BLTU
-					IF (UNSIGNED(rs1_data) < UNSIGNED(rs2_data)) THEN 
-						branch_taken <= '1';
-					ELSE
-						branch_taken <= '0';
-					END IF;
-					
-				WHEN "111" => -- BGEU
-					IF (UNSIGNED(rs1_data) >= UNSIGNED(rs2_data)) THEN 
 						branch_taken <= '1';
 					ELSE
 						branch_taken <= '0';

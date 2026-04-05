@@ -76,28 +76,6 @@ BEGIN
 		WAIT FOR 1 ns;
 		ASSERT branch_taken = '0' REPORT "BGE less than test failed" SEVERITY ERROR;
 
-		-- BLTU: 5 < 10 (unsigned)
-		branch_op <= "110";
-		WAIT FOR 1 ns;
-		ASSERT branch_taken = '1' REPORT "BLTU less than test failed" SEVERITY ERROR;
-
-		-- BLTU: 10 >= 5 (unsigned)
-		rs1_data <= X"0000000A";
-		rs2_data <= X"00000005";
-		WAIT FOR 1 ns;
-		ASSERT branch_taken = '0' REPORT "BLTU greater than test failed" SEVERITY ERROR;
-
-		-- BGEU: 10 >= 5 (unsigned)
-		branch_op <= "111";
-		WAIT FOR 1 ns;
-		ASSERT branch_taken = '1' REPORT "BGEU greater than test failed" SEVERITY ERROR;
-
-		-- BGEU: 5 < 10 (unsigned)
-		rs1_data <= X"00000005";
-		rs2_data <= X"0000000A";
-		WAIT FOR 1 ns;
-		ASSERT branch_taken = '0' REPORT "BGEU less than test failed" SEVERITY ERROR;
-
 		REPORT "All tests completed";
 		WAIT;
 	END PROCESS;
