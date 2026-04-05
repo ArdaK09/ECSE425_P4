@@ -13,7 +13,6 @@ entity pipelined_cpu is
 		clock_period : time := 1 ns
 	);
 	port(
-		--Only need clock and reset as CPU signals
 		clk : in std_logic;
 		reset: in std_logic;
 		
