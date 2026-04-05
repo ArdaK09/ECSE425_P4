@@ -70,14 +70,14 @@ BEGIN
 					END IF;
 					
 				WHEN "110" => -- BLTU
-					IF (UNSIGNED(rs1_data) < UNSIGNED(rs2_data) THEN 
+					IF (UNSIGNED(rs1_data) < UNSIGNED(rs2_data)) THEN 
 						branch_taken <= '1';
 					ELSE
 						branch_taken <= '0';
 					END IF;
 					
 				WHEN "111" => -- BGEU
-					IF (UNSIGNED(rs1_data) >= UNSIGNED(rs2_data) THEN 
+					IF (UNSIGNED(rs1_data) >= UNSIGNED(rs2_data)) THEN 
 						branch_taken <= '1';
 					ELSE
 						branch_taken <= '0';
