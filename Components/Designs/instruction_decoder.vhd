@@ -4,19 +4,19 @@ use ieee.numeric_std.all;
 
 entity instruction_decoder is 
 port(	instruction_input : in std_logic_vector(31 downto 0);
-		Loading_NotStoring : out std_logic;
-		ALU_Operation : out std_logic_vector(3 downto 0);
-		Memeory_WE : out std_logic;
-		RegisterFile_WE : out std_logic;
-		InputA_MUX_Control : out std_logic;
-		InputB_MUX_Control : out std_logic;
-		Branching_Enabled : out std_logic;
-		Branching_Operation : out std_logic_vector(2 downto 0);
-		Writeback_Source_Control : out std_logic;
-		RegisterA : out std_logic_vector(4 downto 0);
-		RegisterB :out std_logic_vector(4 downto 0);
-		Immediate : out std_logic_vector(31 downto 0);
-		DesinationRegister : out std_logic(4 downto 0)
+		loading_notStoring : out std_logic;
+		ALU_Operation : out std_logic_vector(9 downto 0);
+		memeory_WE : out std_logic;
+		registerFile_WE : out std_logic;
+		inputA_MUX_Control : out std_logic;
+		inputB_MUX_Control : out std_logic;
+		branching_Enabled : out std_logic;
+		branching_Operation : out std_logic_vector(1 downto 0);
+		writeback_Source_Control : out std_logic_vector(1 downto 0);
+		registerA : out std_logic_vector(4 downto 0);
+		registerB :out std_logic_vector(4 downto 0);
+		immediate : out std_logic_vector(31 downto 0);
+		desinationRegister : out std_logic(4 downto 0)
 );
 end instruction_decoder
 
@@ -42,127 +42,173 @@ funct7 <= instruction_input(6 downto 0);
 
 --Determine Instruction type and, depending on type, fill in control signals (outs)
 case opcode is
+
+
 	--R-type instruction
 	when "0110011" =>
-		--do this
-		Loading_NotStoring <= '-';
-		ALU_Operation <= funct3;
-		Memeory_WE <= '0';
-		RegisterFile_WE <= '1';
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= funct3 & funct7; --Concatenate, allowing ALU to do the decoding...
+		memeory_WE <= '0'; --active high as per pipelined_cpu specifications
+		registerFile_WE <= '1'; --active high as per register_file specifications
 		--Need rs1 and rs2
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '0';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
-		Writeback_Source_Control <= '0';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
-		Immediate <= (others => '-');
-		DestinationRegister <= rd;
+		inputA_MUX_Control <= '0'; --rs1
+		inputB_MUX_Control <= '0'; --rs2
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= "00"; --ALU Output
+		registerA <= rs1;
+		registerB <= rs2;
+		immediate <= (others => '0'); --DONT CARE
+		destinationRegister <= rd;
+		
+		
 	--I-type instruction
-	when "0010011" | "1100111" =>
-		Loading_NotStoring <= '-';
-		ALU_Operation <= funct3;
-		Memeory_WE <= '0';
-		RegisterFile_WE <= '1';
+	when "0010011" =>
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= funct3 & "0000000"; --Allow ALU to do the decoding
+		memeory_WE <= '0';
+		registerFile_WE <= '1';
 		--Need rs1 and Immediate
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '1';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
-		Writeback_Source_Control <= '0';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
-		Immediate <= instruction_input(31 downto 20);
-		DestinationRegister <= rd;
-		--do this
-	--Single load instruction we are able to do
+		inputA_MUX_Control <= '0'; --rs1
+		inputB_MUX_Control <= '1'; --Imm
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= '00'; --ALU Output
+		registerA <= rs1;
+		registerB <= rs2;
+		immediate <= instruction_input(31 downto 20);
+		destinationRegister <= rd;
+
+		
+	--Load Instructions (I-type)
 	when "0000011" =>
-		Loading_NotStoring <= '1';
-		ALU_Operation <= '000';
-		Memeory_WE <= '1';
-		RegisterFile_WE <= '1';
+		loading_notStoring <= '1';
+		ALU_Operation <= "0000000000"; --Output = rs1 + Immediate
+		memeory_WE <= '1';
+		registerFile_WE <= '1';
 		--Need rs1 and Immediate
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '1';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
+		inputA_MUX_Control <= '0';
+		inputB_MUX_Control <= '1';
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
 		--Data Memory output here!!
-		Writeback_Source_Control <= '1';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
-		Immediate <= instruction_input(31 downto 20);
-		DestinationRegister <= rd;
+		writeback_Source_Control <= "01"; --Data Memory Output
+		registerA <= rs1;
+		registerB <= rs2;
+		--Fixing immediate field
+		immediate <= sign_extend(instruction_input(31 downto 20));
+		destinationRegister <= rd;
+		
+		
 	--B-type instruction
 	when "1100011" =>
-		Loading_NotStoring <= '-';
-		ALU_Operation <= '000';
-		Memeory_WE <= '0';
-		RegisterFile_WE <= '0';
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= "0000000000"; --Output = PC + Immediate
+		memeory_WE <= '0';
+		registerFile_WE <= '0';
 		--Need PC and Immediate
-		InputA_MUX_Control <= '1';
-		InputB_MUX_Control <= '1';
-		Branching_Enabled <= '1';
-		Branching_Operation <= funct3;
-		Writeback_Source_Control <= '-';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
+		inputA_MUX_Control <= '1';
+		inputB_MUX_Control <= '1';
+		branching_Enabled <= '1';
+		branching_Operation <= funct3; --Mapping works!
+		writeback_Source_Control <= "00"; --DONT CARE
+		registerA <= rs1;
+		registerB <= rs2;
 		--Unscrambling immediate value
-		Immediate <= instruction_input(31) & instruction_input(7) & instruction_input(30 downto 25) & instruction_input(11 downto 8);
-		DestinationRegister <= rd;
-		--do this
-	--S-type instruction
+		immediate <= sign_extend(instruction_input(31) & instruction_input(7) & instruction_input(30 downto 25) & instruction_input(11 downto 8) & 0);
+		destinationRegister <= rd;
+
+		
+	--Store Instructions (S-type)
 	when "0100011" =>
-		Loading_NotStoring <= '0';
-		ALU_Operation <= '000';
-		Memeory_WE <= '1';
-		RegisterFile_WE <= '0';
+		loading_notStoring <= '0';
+		ALU_Operation <= "0000000000"; --Output = rs1 + Immediate
+		memeory_WE <= '1';
+		registerFile_WE <= '0';
 		--Need rs1 and Immediate
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '1';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
-		Writeback_Source_Control <= '-';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
+		inputA_MUX_Control <= '0';
+		inputB_MUX_Control <= '1';
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= '00'; --DONT CARE
+		registerA <= rs1;
+		registerB <= rs2;
 		--Unscrambling immediate value
-		Immediate <= (others => '-');
-		DestinationRegister <= rd;
-		--do this
-	--J-type instruction
+		immediate <= sign_extend(instruction_input(31 downto 25) & instruction_input(11 downto 7));
+		destinationRegister <= rd;
+
+		
+	--JAL Instruction (J-type)
 	when "1101111" =>
-		Loading_NotStoring <= '-';
-		ALU_Operation <= funct3;
-		Memeory_WE <= '0';
-		RegisterFile_WE <= '1';
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '0';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
-		Writeback_Source_Control <= '0';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= "0000000000"; --Output = PC + Immediate
+		memeory_WE <= '0';
+		registerFile_WE <= '1';
+		inputA_MUX_Control <= '1';
+		inputB_MUX_Control <= '1';
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= "10"; --Jump Output (nextInstructionAddress)
+		registerA <= rs1;
+		registerB <= rs2;
 		--Unscrambling immediate value
-		Immediate <= (others => '-');
-		DestinationRegister <= rd;
-		--do this
-	--U-type instruction
-	when "0110111" | "0010111" =>
-		Loading_NotStoring <= '-';
-		ALU_Operation <= '001';
-		Memeory_WE <= '0';
-		RegisterFile_WE <= '1';
-		InputA_MUX_Control <= '0';
-		InputB_MUX_Control <= '0';
-		Branching_Enabled <= '0';
-		Branching_Operation <= '-';
-		Writeback_Source_Control <= '0';
-		RegisterA <= rs1;
-		RegisterB <= rs2;
+		immediate <= sign_extend(instruction_input(31) & instruction_input(19 downto 12) & instruction_input(20) & instruction_input(30 downto 21) & '0');
+		destinationRegister <= rd;
+
+		
+	--JALR Instruction (I-type)	
+	when "1100111" =>	
+		loading_NotStoring <= '0'; --DONT CARE
+		ALU_Operation <= "0000000000"; --Output = rs1 + Immediate
+		memory_WE <= '0';
+		registerFile_WE <= '1';
+		inputA_MUX_Control <= '0'; --rs1
+		inputB_MUX_Control <= '1'; --Immediate
+		branching_Enabled <= '1';
+		branching_Operation <= "000";
+		writeback_Source_Control <= "00"; --ALU Output
+		--Unconditional Branching!
+		registerA <= "00000";
+		registerB <= "00000";
+		--Unscrambling immediate value
+		immediate <= sign_extend(instruction_input(31 downto 20));
+		destingationRegister <= rd;
+		
+		
+	--LUI Instruction (U-type)
+	when "0110111" =>
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= "0000000000"; --Output = 0 + Immediate
+		memeory_WE <= '0';
+		registerFile_WE <= '1';
+		inputA_MUX_Control <= '0'; --rs1 (=0)
+		inputB_MUX_Control <= '1'; --Immediate
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= "00"; --ALU Output
+		registerA <= "00000"; --Necessity to push immediate through ALU with no changes
+		registerB <= "00000"; --DONT CARE
 		--Unscambling immediate value
-		Immediate <= (others => '-');
-		DestinationRegister <= rd;
-		--do this
+		immediate <= instruction_input(31 downto 12) & x"000";
+		destinationRegister <= rd;
+
+		
+	--AUIPC Instruction (U-type)	
+	when "0010111" =>
+		loading_notStoring <= '0'; --DONT CARE
+		ALU_Operation <= "0000000000"; --Output = PC + Immediate
+		memeory_WE <= '0';
+		registerFile_WE <= '1';
+		inputA_MUX_Control <= '1'; --PC
+		inputB_MUX_Control <= '1'; --Immediate
+		branching_Enabled <= '0';
+		branching_Operation <= "000"; --DONT CARE
+		writeback_Source_Control <= "00"; --ALU Output
+		registerA <= "00000"; --DONT CARE
+		registerB <= "00000"; --DONT CARE
+		--Unscambling immediate value
+		immediate <= instruction_input(31 downto 12) & x"000";
+		destinationRegister <= rd;	
 	
 	when others =>
 	
