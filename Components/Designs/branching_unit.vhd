@@ -85,7 +85,8 @@ BEGIN
 					
 				WHEN OTHERS =>
 					branch_taken <= '0';
-			
+					
+			END CASE;
 		END IF;
 	END PROCESS;
 END logic;	
