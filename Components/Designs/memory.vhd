@@ -5,7 +5,7 @@ USE ieee.numeric_std.all;
 ENTITY memory IS
 	GENERIC(
 		ram_size : INTEGER := 32768;
-		mem_delay : time := 10 ns;
+		mem_delay : time := 1 ns;
 		clock_period : time := 1 ns
 	);
 	PORT (
@@ -20,7 +20,7 @@ ENTITY memory IS
 END memory;
 
 ARCHITECTURE rtl OF memory IS
-	TYPE MEM IS ARRAY(ram_size-1 downto 0) OF STD_LOGIC_VECTOR(7 DOWNTO 0);
+	TYPE MEM IS ARRAY(8191 downto 0) OF STD_LOGIC_VECTOR(31 DOWNTO 0);
 	SIGNAL ram_block: MEM;
 	SIGNAL read_address_reg: INTEGER RANGE 0 to ram_size-1;
 	SIGNAL write_waitreq_reg: STD_LOGIC := '1';
@@ -45,7 +45,6 @@ BEGIN
 		END IF;
 	END PROCESS;
 	readdata <= ram_block(read_address_reg);
-
 
 	--The waitrequest signal is used to vary response time in simulation
 	--Read and write should never happen at the same time.
