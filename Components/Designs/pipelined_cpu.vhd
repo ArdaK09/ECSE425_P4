@@ -40,10 +40,12 @@ architecture rtl of pipelined_cpu is
 	component program_counter is 
 		port(
 			clk : in std_logic;
-			counter_stall : in std_logic;
-			branching_result : in std_logic;
-			branching_address : in std_logic_vector(31 downto 0);
-			currentInstructionAddress : out std_logic_vector(31 downto 0)
+			reset : in std_logic;
+			stall : in std_logic;
+			jump_or_branch_condition : in std_logic;
+			jump_or_branch_addr : in std_logic_vector(31 downto 0);
+			pc_out : out std_logic_vector(31 downto 0);
+			pc_plus4_out : out std_logic_vector(31 downto 0)
 		);
 	end program_counter;
 	
@@ -200,10 +202,12 @@ begin
 	ProgramCounterInstance : program_counter
 		port map (
 			clk => clk,
-			counter_stall => pc_stall,
-			branching_result => exmem_branching_result,
-			branching_address => exmem_ALU_Output,
-			currentInstructionAddress => pc_current_address
+			reset => reset,
+			stall => pc_stall,
+			jump_or_branch_condition => exmem_branching_result,
+			jump_or_branch_addr => exmem_ALU_Output,
+			pc_out => pc_current_address,
+			pc_plus4_out => pc_next_address
 		);
 		
 	InstructionDecoderInstance : instruction_decoder
@@ -263,6 +267,7 @@ begin
 	i_memread <= '1';
 	i_memwrite <= '0';
 	i_writedata <= (others => '0');	
+	pc_next_address <= std_logic_vector(unsigned(pc_current_address) + 4);
 		
 	--=========================================================================================	
 		
