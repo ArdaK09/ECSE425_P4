@@ -46,14 +46,14 @@ architecture rtl of pipelined_cpu is
 			pc_out : out std_logic_vector(31 downto 0);
 			pc_plus4_out : out std_logic_vector(31 downto 0)
 		);
-	end program_counter;
+	end component program_counter;
 	
 	component instruction_decoder is 
 		port(
 			instruction_input : in std_logic_vector(31 downto 0);
 			Loading_NotStoring : out std_logic;
 			ALU_Operation : out std_logic_vector(9 downto 0);
-			Memeory_WE : out std_logic;
+			Memory_WE : out std_logic;
 			RegisterFile_WE : out std_logic;
 			InputA_MUX_Control : out std_logic;
 			InputB_MUX_Control : out std_logic;
@@ -63,9 +63,9 @@ architecture rtl of pipelined_cpu is
 			RegisterA : out std_logic_vector(4 downto 0);
 			RegisterB :out std_logic_vector(4 downto 0);
 			Immediate : out std_logic_vector(31 downto 0);
-			DesinationRegister : out std_logic(4 downto 0)
+			DestinationRegister : out std_logic_vector(4 downto 0)
 		);
-	end instruction_decoder;
+	end component instruction_decoder;
 	
 	component register_file is 
 		port(
@@ -79,7 +79,7 @@ architecture rtl of pipelined_cpu is
 			rs2_addr : in std_logic_vector(4 downto 0);
 			rs2_data : out std_logic_vector(31 downto 0)
 		);
-	end register_file;
+	end component register_file;
 	
 	component branching_unit is
 		port(
@@ -89,7 +89,7 @@ architecture rtl of pipelined_cpu is
 			branch       : in std_logic;
 			branch_taken : out std_logic
 		);
-	end branching_unit;
+	end component branching_unit;
 	
 	component ALU is 
 		port(
@@ -98,7 +98,7 @@ architecture rtl of pipelined_cpu is
 			rs2 : in std_logic_vector(31 downto 0);
 			rd : out std_logic_vector(31 downto 0)
 		);
-	end ALU;
+	end component ALU;
 	
 	-- Internal Combinational Signals (between stages)
  
@@ -170,7 +170,7 @@ architecture rtl of pipelined_cpu is
 	signal idex_inputA_MUX_Control : std_logic;
 	signal idex_inputB_MUX_Control : std_logic;
 	signal idex_branchingEnabled : std_logic;
-	signal idex_branching_Operation : std_logic_vector(1 downto 0);
+	signal idex_branching_Operation : std_logic_vector(2 downto 0);
 	signal idex_writeback_Source_Control : std_logic_vector(1 downto 0);
 
 	
@@ -235,7 +235,7 @@ begin
 			write_data => wb_write_data,
 			rd_addr => memwb_destinationRegister,
 			rs1_addr => dec_registerA,
-			rs1_data => rd_rs1_data,
+			rs1_data => rf_rs1_data,
 			rs2_addr => dec_registerB,
 			rs2_data => rf_rs2_data
 		);
@@ -257,7 +257,7 @@ begin
 			rd => alu_output
 		);
 	
-	--=========================================================================================
+	--
 	
 	--Instruction Fetch Combinational Logic
 		
@@ -268,7 +268,7 @@ begin
 	i_writedata <= (others => '0');	
 	pc_next_address <= std_logic_vector(unsigned(pc_current_address) + 4);
 		
-	--=========================================================================================	
+	--	
 		
 	--IF/ID register updates (clocked process)
 	IFID_REG :  process(clk, reset)
@@ -285,13 +285,13 @@ begin
 		end if;
 	end process;
 	
-	--=========================================================================================
+	--
 	
 	--Instruction Decode Combinational Logic
 	
 	--Everything occurs in the instruction_decoder and register_file, so no logic necessary
 	
-	--=========================================================================================
+	--
 	
 	--ID/EX register updates (clocked process)
 	IDEX_REG : process(clk, reset)
@@ -337,24 +337,12 @@ begin
 		end if;
 	end process;
 	
-	--=========================================================================================
 	
 	--Instruction Execution Combinational Logic
 	
-	--Update muxes!
-	if idex_inputA_MUX_Control = '1' then
-		alu_input_a <= idex_currentInstructionAddress;
-	else
-		alu_input_a <= idex_registerAValue;
-	end if;
-	
-	if idex_inputB_MUX_Control = '1' then
-		alu_input_b <= idex_immediateValue;
-	else
-		alu_input_b <= idex_registerBValue;
-	end if;
-	
-	--=========================================================================================
+	alu_input_a <= idex_currentInstructionAddress when idex_inputA_MUX_Control = '1' else idex_registerAValue;
+	alu_input_b <= idex_immediateValue when idex_inputB_MUX_Control = '1' else idex_registerBValue;
+
 	
 	--EX/MEM register updates (clocked process)
 	EXMEM_REG : process(clk, reset)
@@ -388,33 +376,36 @@ begin
 		end if;
 	end process;
 	
-	--=========================================================================================
+	--
 	
 	--Memory Stage Combinational Logic
 	
 	--Use avalon interface to set the data memory...
-	if exmem_memory_WE = '1' then
-		if exmem_loading_notStoring = '1' then
-			--Load instruction
-			d_address <= to_integer(unsigned(exmem_ALU_Output));
-			d_memwrite <= '0';
-			d_memread <= '1';
+	--process is simpler than multiple combinational assignments
+	exec_mem_process: process(exmem_memory_WE, exmem_loading_notStoring, exmem_ALU_Output, exmem_registerB_Output)
+	begin
+		if exmem_memory_WE = '1' then
+			if exmem_loading_notStoring = '1' then
+				--Load instruction
+				d_address <= to_integer(unsigned(exmem_ALU_Output));
+				d_memwrite <= '0';
+				d_memread <= '1';
+			else
+				--Store instruction
+				d_address <= to_integer(unsigned(exmem_ALU_Output));
+				d_memwrite <= '1';
+				d_memread <= '0';
+				d_writedata <= exmem_registerB_Output;
+			end if;
 		else
-			--Store instruction
-			d_address <= to_integer(unsigned(exmem_ALU_Output));
-			d_memwrite <= '1';
+			--Turn signals off
+			d_address <= 0;
+			d_memwrite <= '0';
 			d_memread <= '0';
-			d_writedata <= exmem_registerB_Output;
+			d_writedata <= (others => '0');
 		end if;
-	else
-		--Turn signals off
-		d_address <= 0;
-		d_memwrite <= '0';
-		d_memread <= '0';
-		d_writedata <= (others => '0');
-	end if;
-	
-	--=========================================================================================
+	end process;	
+	--
 	
 	--MEM/WB register updates (clocked process)
 	MEMWB_REG : process(clk, reset)
@@ -440,19 +431,21 @@ begin
 		end if;
 	end process;
 	
-	--=========================================================================================
+	--
 	
 	--Writeback Combinational Logic
 	
 	--MUX the memwb_nextInstructionAddress, memwb_ALU_Output, and memwb_memory_Output
-	if memwb_writeback_Source_Control = '10' then
-		wb_write_data <= memwb_nextInstructionAddress;
-	elsif memwb_writeback_Source_Control = '01' then
-		wb_write_data <= memwb_memory_Output;
-	else
-		wb_write_data <= memwb_ALU_Output;
-	end if;
-
-	--=========================================================================================
+	wb_process: process(memwb_writeback_Source_Control, memwb_nextInstructionAddress, memwb_ALU_Output, memwb_memory_Output)
+	begin
+		if memwb_writeback_Source_Control ="10" then
+			wb_write_data <= memwb_nextInstructionAddress;
+		elsif memwb_writeback_Source_Control = "01" then
+			wb_write_data <= memwb_memory_Output;
+		else
+			wb_write_data <= memwb_ALU_Output;
+		end if;
+	end process;
+	--
 end rtl;
 	
