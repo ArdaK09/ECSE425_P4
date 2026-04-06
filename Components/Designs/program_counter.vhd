@@ -24,12 +24,15 @@ begin
 	counter_plus4 <= std_logic_vector(unsigned(counter_register) + 4);
 	
 	--MUX the branch/jump with the (counter + 4). If branch condition high, next set to the branch/jump address, else, set to (counter + 4)
-	if jump_or_branch_condition = '1' then
-		counter_next <= jump_or_branch_addr;
-	else
-		counter_next <= counter_plus4;
-	end if;
 
+	branch: process (jump_or_branch_condition)
+	begin
+		if jump_or_branch_condition = '1' then
+			counter_next <= jump_or_branch_addr;
+		else
+			counter_next <= counter_plus4;
+		end if;
+	end process;
 	
 	--Register update logic
 	update_register: process(clk)
@@ -45,6 +48,8 @@ begin
 				--updated counter
 				counter_register <= counter_next;
 			end if;
+			pc_out <= counter_register;
+			pc_plus4_out <= counter_plus4;
 		end if;	
 	end process;
 	
