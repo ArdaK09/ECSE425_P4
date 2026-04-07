@@ -268,8 +268,6 @@ begin
 	i_writedata <= (others => '0');	
 	pc_next_address <= std_logic_vector(unsigned(pc_current_address) + 4);
 		
-	--	
-		
 	--IF/ID register updates (clocked process)
 	IFID_REG :  process(clk, reset)
 	begin
@@ -285,13 +283,11 @@ begin
 		end if;
 	end process;
 	
-	--
 	
 	--Instruction Decode Combinational Logic
 	
 	--Everything occurs in the instruction_decoder and register_file, so no logic necessary
 	
-	--
 	
 	--ID/EX register updates (clocked process)
 	IDEX_REG : process(clk, reset)
