@@ -32,7 +32,7 @@ architecture arch of top_level is
     signal d_waitrequest : std_logic;
 
 	--Clock Divider Signal 
-	signal clock_divider : std_logic := '0';
+	signal clk_divider : std_logic := '0';
  
     component memory is
         port(
@@ -75,6 +75,7 @@ architecture arch of top_level is
         		reset : in std_logic;
         		clk_out : out std_logic
     		);
+	end component;
  
 begin
  
@@ -104,12 +105,12 @@ begin
 		port map(
 				clk_in => clk,
 				reset => reset,
-				clk_out => clock_divider
+				clk_out => clk_divider
 				);
 		
     processor : pipelined_cpu
         port map(
-            clk => clock_divider,
+            clk => clk_divider,
             reset => reset,
  
             i_writedata => i_writedata,
