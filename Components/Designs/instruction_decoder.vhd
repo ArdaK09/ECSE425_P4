@@ -78,7 +78,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				writeback_Source_Control <= "00"; --ALU Output
 				registerA <= rs1;
 				registerB <= rs2;
-				immediate <= instruction_input(31 downto 20);
+				immediate <= (31 downto 12 => '0') & instruction_input(31 downto 20);
 				destinationRegister <= rd;
 
 				
