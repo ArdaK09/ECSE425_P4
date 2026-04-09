@@ -105,6 +105,7 @@ architecture rtl of pipelined_cpu is
 	--PC Output wires
 	signal pc_current_address    : std_logic_vector(31 downto 0);
 	signal pc_next_address       : std_logic_vector(31 downto 0);
+	signal currInstruction : std_logic_vector(31 downto 0); -- Output of InstrMem, wired to IF/ID reg
  
 	--PC Stalling wires
 	signal pc_stall              : std_logic;
@@ -267,7 +268,14 @@ begin
 	i_memwrite <= '0';
 	i_writedata <= (others => '0');	
 	pc_next_address <= std_logic_vector(unsigned(pc_current_address) + 4);
-		
+	
+	PRE_REGISTER_SIGNAL : process(i_waitrequest)
+	begin
+		if falling_edge(i_waitrequest) then
+			currInstruction <= i_readdata;
+		end if;
+	end process;
+			
 	--IF/ID register updates (clocked process)
 	IFID_REG :  process(clk, reset)
 	begin
@@ -277,7 +285,7 @@ begin
 			ifid_currentInstructionAddress <= (others => '0');
 			ifid_nextInstructionAddress <= (others => '0');
 		elsif rising_edge(clk) then
-			ifid_currentInstruction <= i_readdata;
+			ifid_currentInstruction <= currInstruction;
 			ifid_currentInstructionAddress <= pc_current_address;
 			ifid_nextInstructionAddress <= pc_next_address;
 		end if;
