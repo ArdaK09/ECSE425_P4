@@ -18,7 +18,7 @@ entity hazard_detection_unit is
 			stall_pc : out std_logic;
 			flush_ifid : out std_logic;
 			flush_idex : out std_logic;
-			flush_exmem : out std_logic;
+			flush_exmem : out std_logic
 	);
 end hazard_detection_unit;
 
@@ -43,7 +43,7 @@ begin
 		end if;
 	end process;
 
-	combinationalLogic : process(state, rs1, rs2, mux1Control, mux2Control, EX_rd, MEM_rd, exmem_branching_result
+	combinationalLogic : process(state, rs1, rs2, mux1Control, mux2Control, EX_rd, MEM_rd, exmem_branching_result)
 	begin
 		-- Default all outputs to avoid latches
 		stall_ifid  <= '0';
