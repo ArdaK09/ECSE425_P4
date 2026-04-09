@@ -5,7 +5,7 @@ USE ieee.numeric_std.all;
 ENTITY memory IS
 	GENERIC(
 		ram_size : INTEGER := 8192; -- 32768 Bytes = 8192 words
-		mem_delay : time := 0.3 ns;
+		mem_delay : time := 0.3 ns
 	);
 	PORT (
 		clock: IN STD_LOGIC;
