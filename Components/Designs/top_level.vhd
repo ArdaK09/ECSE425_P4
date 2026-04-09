@@ -30,6 +30,9 @@ architecture arch of top_level is
     signal d_memread : std_logic;
     signal d_readdata : std_logic_vector(31 downto 0);
     signal d_waitrequest : std_logic;
+
+	--Clock Divider Signal 
+	signal clock_divider : std_logic := '0';
  
     component memory is
         port(
@@ -65,6 +68,13 @@ architecture arch of top_level is
             d_waitrequest : in std_logic
         );
     end component;
+
+    component clock_divider is
+    	port (
+				clk_in : in std_logic;
+        		reset : in std_logic;
+        		clk_out : out std_logic
+    		);
  
 begin
  
@@ -89,10 +99,17 @@ begin
             readdata => d_readdata,
             waitrequest => d_waitrequest
         );
- 
+		
+ 	cpu_clock_divider : clock_divider
+		port map(
+				clk_in => clk,
+				reset => reset,
+				clk_out => clock_divider
+				);
+		
     processor : pipelined_cpu
         port map(
-            clk => clk,
+            clk => clock_divider,
             reset => reset,
  
             i_writedata => i_writedata,
