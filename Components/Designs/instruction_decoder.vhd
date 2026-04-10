@@ -78,7 +78,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				writeback_Source_Control <= "00"; --ALU Output
 				registerA <= rs1;
 				registerB <= rs2;
-				immediate <= (31 downto 12 => '0') & instruction_input(31 downto 20);
+				immediate <= std_logic_vector(resize(signed(instruction_input(31 downto 20)), 32));
 				destinationRegister <= rd;
 
 				
@@ -148,7 +148,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				registerFile_WE <= '1';
 				inputA_MUX_Control <= '1';
 				inputB_MUX_Control <= '1';
-				branching_Enabled <= '0';
+				branching_Enabled <= '1';
 				branching_Operation <= "000"; --DONT CARE
 				writeback_Source_Control <= "10"; --Jump Output (nextInstructionAddress)
 				registerA <= rs1;
