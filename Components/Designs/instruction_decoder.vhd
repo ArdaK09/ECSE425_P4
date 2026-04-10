@@ -214,7 +214,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 			
 			when others =>	--NOP
 				loading_notStoring <= '0';
-				ALU_Operation <= '0';
+				ALU_Operation <= "0000000000";
 				memory_WE <= '0';
 				registerFile_WE <= '0';
 				inputA_MUX_Control <= '0';
