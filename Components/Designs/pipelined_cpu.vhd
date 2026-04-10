@@ -105,7 +105,7 @@ architecture rtl of pipelined_cpu is
 	--PC Output wires
 	signal pc_current_address    : std_logic_vector(31 downto 0);
 	signal pc_next_address       : std_logic_vector(31 downto 0);
-	signal currInstruction : std_logic_vector(31 downto 0); -- Output of InstrMem, wired to IF/ID reg
+	signal currInstruction : std_logic_vector(31 downto 0) := (others => '0'); -- Output of InstrMem, wired to IF/ID reg
  
 	--PC Stalling wires
 	signal pc_stall              : std_logic;
@@ -267,16 +267,14 @@ begin
 	--Send avalon request to get the next instruction from the instruction memory
 	issueNextInstruction : process(pc_current_address, i_waitrequest)
 	begin
-		if pc_current_address'event then
+		if falling_edge(i_waitrequest) then
+			currInstruction <= i_readdata;
+			i_memread       <= '0';
+		elsif not rising_edge(i_waitrequest) and pc_current_address'event then
 			i_address    <= to_integer(unsigned(pc_current_address));
 			i_memread    <= '1';
 			i_memwrite   <= '0';
 			i_writedata  <= (others => '0');
-		end if;
-
-		if falling_edge(i_waitrequest) then
-			currInstruction <= i_readdata;
-			i_memread       <= '0';
 		end if;
 	end process;
 			
@@ -399,7 +397,7 @@ begin
 			d_memwrite <= '0';
 			d_address  <= 0;
 			d_writedata <= (others => '0');
-		elsif exmem_memory_WE = '1' then
+		elsif not rising_edge(d_waitrequest) and exmem_memory_WE = '1' then
 			if exmem_loading_notStoring = '1' then
 				d_address  <= to_integer(unsigned(exmem_ALU_Output));
 				d_memwrite <= '0';
