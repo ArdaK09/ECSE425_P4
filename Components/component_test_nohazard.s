@@ -1,15 +1,10 @@
     li x6, 0xF0F0F0F0  # x6 = 0xF0F0F0F0
-    li x7, 0x0F0F0F0F  # x7 = 0x0F0F0F0F
-
+    li x7, 0x0F0F0F0F  # x7 = 0x0F0F0F0F	
     or x8, x6, x7
-    
     and x9, x6, x7
-    
     li x1, 10   # x1 = 10
     li x2, 3    # x2 = 3
-    
     add x3, x1, x2  # x3 = x1 + x2 = 10 + 3 = 13
-    
     sub x4, x1, x2  # x4 = x1 - x2 = 10 - 3 = 7
     
     mul x5, x1, x2 # x5 = x1 * x2 = 10 * 3 = 30
