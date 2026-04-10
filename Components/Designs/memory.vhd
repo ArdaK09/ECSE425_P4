@@ -40,7 +40,7 @@ BEGIN
 			IF (memwrite = '1') THEN
 				ram_block(address) <= writedata;
 			END IF;
-			read_address_reg <= address;
+			read_address_reg <= (address / 4);
 		END IF;
 	END PROCESS;
 	
