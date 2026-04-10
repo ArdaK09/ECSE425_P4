@@ -139,6 +139,9 @@ architecture rtl of pipelined_cpu is
 	
 	--ALU output
 	signal alu_output  : std_logic_vector(31 downto 0);
+	
+	--Data Memory Output
+	signal currData : std_logic_vector(31 downto 0);
  
 	--Writeback MUX output (Either PC + 4, Data Memory, or ALU Output)
 	signal wb_write_data : std_logic_vector(31 downto 0);
@@ -268,10 +271,11 @@ begin
 	i_memwrite <= '0';
 	i_writedata <= (others => '0');	
 	
-	PRE_REGISTER_SIGNAL : process(i_waitrequest)
+	instructionMemOutput : process(i_waitrequest)
 	begin
 		if falling_edge(i_waitrequest) then
 			currInstruction <= i_readdata;
+			i_memread <= '0';
 		end if;
 	end process;
 			
@@ -408,7 +412,16 @@ begin
 			d_writedata <= (others => '0');
 		end if;
 	end process;	
-	--
+	
+	dataMemOutput : process(d_waitrequest)
+	begin
+		if falling_edge(d_waitrequest) then
+			currData <= d_readdata;
+			d_memread <= '0';
+			d_memwrite <= '0';
+		end if;
+	end process;
+	
 	
 	--MEM/WB register updates (clocked process)
 	MEMWB_REG : process(clk, reset)
