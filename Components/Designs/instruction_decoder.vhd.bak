@@ -212,20 +212,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				immediate <= instruction_input(31 downto 12) & x"000";
 				destinationRegister <= rd;	
 			
-			when others =>	--NOP
-				loading_notStoring <= '0';
-				ALU_Operation <= '0';
-				memory_WE <= '0';
-				registerFile_WE <= '0';
-				inputA_MUX_Control <= '0';
-				inputB_MUX_Control <= '0';
-				branching_Enabled <= '0';
-				branching_Operation <= "000";
-				writeback_Source_Control <= "00";
-				registerA <= "00000";
-				registerB <= "00000";
-				immediate <= (others => '0');
-				destinationRegister <= "00000";
+			when others =>
 			
 		end case;
 	end process;

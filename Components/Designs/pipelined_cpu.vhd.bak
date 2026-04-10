@@ -109,6 +109,7 @@ architecture rtl of pipelined_cpu is
  
 	--PC Stalling wires
 	signal pc_stall              : std_logic;
+	signal stall_counter         : integer range 0 to 4 := 0;
  
 	-- Branching wires
 	signal branch_taken          : std_logic;
