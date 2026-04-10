@@ -25,7 +25,7 @@ begin
 	
 	--MUX the branch/jump with the (counter + 4). If branch condition high, next set to the branch/jump address, else, set to (counter + 4)
 
-	branch: process (jump_or_branch_condition)
+	branch: process (jump_or_branch_condition, jump_or_branch_addr)
 	begin
 		if jump_or_branch_condition = '1' then
 			counter_next <= jump_or_branch_addr;
