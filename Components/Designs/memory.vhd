@@ -38,7 +38,7 @@ BEGIN
 		--This is the actual synthesizable SRAM block
 		IF (clock'event AND clock = '1') THEN
 			IF (memwrite = '1') THEN
-				ram_block(address) <= writedata;
+				ram_block(address / 4) <= writedata;
 			END IF;
 			read_address_reg <= (address / 4);
 		END IF;
