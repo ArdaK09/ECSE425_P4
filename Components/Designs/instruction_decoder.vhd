@@ -151,8 +151,8 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				branching_Enabled <= '1';
 				branching_Operation <= "000"; --DONT CARE
 				writeback_Source_Control <= "10"; --Jump Output (nextInstructionAddress)
-				registerA <= rs1;
-				registerB <= rs2;
+				registerA <= "00000";
+				registerB <= "00000";
 				--Unscrambling immediate value
 				immediate <= std_logic_vector(resize(signed(instruction_input(31) & instruction_input(19 downto 12) & instruction_input(20) & instruction_input(30 downto 21) & '0'),32));
 				destinationRegister <= rd;
@@ -171,7 +171,7 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				writeback_Source_Control <= "10"; --PC + 4 Output
 				--Unconditional Branching!
 				registerA <= rs1;
-				registerB <= "00000";
+				registerB <= rs1;
 				--Unscrambling immediate value
 				immediate <= std_logic_vector(resize(signed(instruction_input(31 downto 20)),32));
 				destinationRegister <= rd;

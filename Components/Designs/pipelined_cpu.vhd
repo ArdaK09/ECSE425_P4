@@ -265,16 +265,18 @@ begin
 	--Instruction Fetch Combinational Logic
 		
 	--Send avalon request to get the next instruction from the instruction memory
-	i_address <= to_integer(unsigned(pc_current_address));
-	i_memread <= '1';
-	i_memwrite <= '0';
-	i_writedata <= (others => '0');	
-	
-	instructionMemOutput : process(i_waitrequest)
+	issueNextInstruction : process(pc_current_address, i_waitrequest)
 	begin
+		if pc_current_address'event then
+			i_address    <= to_integer(unsigned(pc_current_address));
+			i_memread    <= '1';
+			i_memwrite   <= '0';
+			i_writedata  <= (others => '0');
+		end if;
+
 		if falling_edge(i_waitrequest) then
 			currInstruction <= i_readdata;
-			i_memread <= '0';
+			i_memread       <= '0';
 		end if;
 	end process;
 			
@@ -388,36 +390,31 @@ begin
 	
 	--Use avalon interface to set the data memory...
 	--process is simpler than multiple combinational assignments
-	exec_mem_process: process(exmem_memory_WE, exmem_loading_notStoring, exmem_ALU_Output, exmem_registerB_Output)
-	begin
-		if exmem_memory_WE = '1' then
-			if exmem_loading_notStoring = '1' then
-				--Load instruction
-				d_address <= to_integer(unsigned(exmem_ALU_Output));
-				d_memwrite <= '0';
-				d_memread <= '1';
-			else
-				--Store instruction
-				d_address <= to_integer(unsigned(exmem_ALU_Output));
-				d_memwrite <= '1';
-				d_memread <= '0';
-				d_writedata <= exmem_registerB_Output;
-			end if;
-		else
-			--Turn signals off
-			d_address <= 0;
-			d_memwrite <= '0';
-			d_memread <= '0';
-			d_writedata <= (others => '0');
-		end if;
-	end process;	
-	
-	dataMemOutput : process(d_waitrequest)
+	exec_mem_process: process(exmem_memory_WE, exmem_loading_notStoring, exmem_ALU_Output, exmem_registerB_Output, d_waitrequest)
 	begin
 		if falling_edge(d_waitrequest) then
-			currData <= d_readdata;
-			d_memread <= '0';
+			-- Transaction complete, deassert and capture data
+			currData   <= d_readdata;
+			d_memread  <= '0';
 			d_memwrite <= '0';
+			d_address  <= 0;
+			d_writedata <= (others => '0');
+		elsif exmem_memory_WE = '1' then
+			if exmem_loading_notStoring = '1' then
+				d_address  <= to_integer(unsigned(exmem_ALU_Output));
+				d_memwrite <= '0';
+            d_memread  <= '1';
+			else
+				d_address   <= to_integer(unsigned(exmem_ALU_Output));
+            d_memwrite  <= '1';
+            d_memread   <= '0';
+            d_writedata <= exmem_registerB_Output;
+			end if;
+		else
+			d_address   <= 0;
+			d_memwrite  <= '0';
+			d_memread   <= '0';
+        d_writedata <= (others => '0');
 		end if;
 	end process;
 	
@@ -442,7 +439,7 @@ begin
 			memwb_registerFile_WE <= exmem_registerFile_WE;
 			
 			--Data Memory Output
-			memwb_memory_Output <= d_readdata;
+			memwb_memory_Output <= currData;
 		end if;
 	end process;
 	
