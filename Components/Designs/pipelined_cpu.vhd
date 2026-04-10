@@ -267,7 +267,6 @@ begin
 	i_memread <= '1';
 	i_memwrite <= '0';
 	i_writedata <= (others => '0');	
-	pc_next_address <= std_logic_vector(unsigned(pc_current_address) + 4);
 	
 	PRE_REGISTER_SIGNAL : process(i_waitrequest)
 	begin

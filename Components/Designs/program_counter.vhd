@@ -20,8 +20,8 @@ architecture rtl of program_counter is
 	signal counter_plus4 : std_logic_vector(31 downto 0);
 begin
 	--Combinational logic
-	--Set counter + 4
-	counter_plus4 <= std_logic_vector(unsigned(counter_register) + 4);
+	--Set counter + (size of word addr)
+	counter_plus4 <= std_logic_vector(unsigned(counter_register) + 1); -- used to be plus 4 but the memory is now word addressable
 	
 	--MUX the branch/jump with the (counter + 4). If branch condition high, next set to the branch/jump address, else, set to (counter + 4)
 

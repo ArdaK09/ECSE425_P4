@@ -38,7 +38,7 @@ ARCHITECTURE rtl OF register_file IS
 	-- ---------------------------------------------------------------------------
 	write_proc : PROCESS(clk)
 		BEGIN
-			IF rising_edge(clk) THEN
+			IF rising_edge(clk) or falling_edge(clk) THEN
 				IF reset = '1' THEN
 				-- Clear all 32 registers synchronously
 					FOR i IN 0 TO 31 LOOP
