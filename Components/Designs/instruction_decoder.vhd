@@ -168,9 +168,9 @@ process(opcode, funct3, funct7, rs1, rs2, rd, instruction_input)
 				inputB_MUX_Control <= '1'; --Immediate
 				branching_Enabled <= '1';
 				branching_Operation <= "000";
-				writeback_Source_Control <= "00"; --ALU Output
+				writeback_Source_Control <= "10"; --PC + 4 Output
 				--Unconditional Branching!
-				registerA <= "00000";
+				registerA <= rs1;
 				registerB <= "00000";
 				--Unscrambling immediate value
 				immediate <= std_logic_vector(resize(signed(instruction_input(31 downto 20)),32));
