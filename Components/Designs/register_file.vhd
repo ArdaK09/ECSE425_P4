@@ -55,8 +55,10 @@ ARCHITECTURE rtl OF register_file IS
 						all_regs(i) <= (OTHERS => '0');
 					END LOOP;
 				ELSIF reg_write = '1' THEN
-				-- Write only when enabled and target is not the zero register	
-					all_regs(to_integer(unsigned(rd_addr))) <= write_data;
+				-- Write only when enabled and target is not the zero register
+					if rd_addr /= "00000" THEN
+						all_regs(to_integer(unsigned(rd_addr))) <= write_data;
+					END IF;
 			END IF;
 		END IF;
 	END PROCESS write_proc;
