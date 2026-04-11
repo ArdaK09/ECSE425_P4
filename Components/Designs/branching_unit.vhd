@@ -38,12 +38,38 @@ BEGIN
 		IF (branch = '0') THEN
 			branch_taken <= '0';	
 		ELSE 
-			CASE branch_op IS    
-    			WHEN "000"  => branch_taken <= '1' WHEN (rs1_data = rs2_data) ELSE '0'; -- BEQ
-    			WHEN "001"  => branch_taken <= '1' WHEN (rs1_data /= rs2_data) ELSE '0'; -- BNE
-    			WHEN "100"  => branch_taken <= '1' WHEN (SIGNED(rs1_data) < SIGNED(rs2_data)) ELSE '0';  -- BLT
-    			WHEN "101"  => branch_taken <= '1' WHEN (SIGNED(rs1_data) >= SIGNED(rs2_data)) ELSE '0'; -- BGE
-    			WHEN OTHERS => branch_taken <= '0';
+			CASE branch_op IS	
+				WHEN "000" => -- BEQ
+					IF (rs1_data = rs2_data) THEN 
+						branch_taken <= '1';
+					ELSE
+						branch_taken <= '0';
+					END IF;
+					
+				WHEN "001" => -- BNE
+					IF (rs1_data /= rs2_data) THEN 
+						branch_taken <= '1';
+					ELSE
+						branch_taken <= '0';
+					END IF;
+					
+				WHEN "100" => -- BLT
+					IF (SIGNED(rs1_data) < SIGNED(rs2_data)) THEN 
+						branch_taken <= '1';
+					ELSE
+						branch_taken <= '0';
+					END IF;
+					
+				WHEN "101" => -- BGE
+					IF (SIGNED(rs1_data) >= SIGNED(rs2_data)) THEN 
+						branch_taken <= '1';
+					ELSE
+						branch_taken <= '0';
+					END IF;
+					
+				WHEN OTHERS =>
+					branch_taken <= '0';
+					
 			END CASE;
 		END IF;
 	END PROCESS;
