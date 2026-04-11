@@ -56,6 +56,7 @@ begin
 		case state is
 			when IDLE =>
 				-- Control hazard highest priority
+				-- Flush first three registers
 				if exmem_branching_result = '1' then
 					nextState   <= ControlHazard;
 					flush_ifid  <= '1';
@@ -64,15 +65,17 @@ begin
 
 				-- Check rs1 and rs2 independently, take worst case
 				else
-				-- Two cycle hazard (back to back dependency)
-					if (mux1Control = '0' and rs1 = EX_rd) or (mux2Control = '0' and rs2 = EX_rd) then
+				-- Two cycle hazard (back to back data dependency)
+				-- Checked by comparing the inputs to ALU and ID/EX register (prev instr) return address
+					if (rs1 /= "00000" and mux1Control = '0' and rs1 = EX_rd) or (rs2 /= "00000" and mux2Control = '0' and rs2 = EX_rd) then
 						nextState  <= TwoCycleHazardCycle1;
 						stall_ifid <= '1';
 						stall_pc   <= '1';
 						flush_idex <= '1';
 
-					-- One cycle hazard (one-apart dependency)
-					elsif (mux1Control = '0' and rs1 = MEM_rd) or (mux2Control = '0' and rs2 = MEM_rd) then
+					-- One cycle hazard (one-apart data dependency)
+					-- Checked similar to above
+					elsif (rs1 /= "00000" and mux1Control = '0' and rs1 = MEM_rd) or ( rs2 /= "00000" and mux2Control = '0' and rs2 = MEM_rd) then
 						nextState  <= OneCycleHazardCycle1;
 						stall_ifid <= '1';
 						stall_pc   <= '1';
