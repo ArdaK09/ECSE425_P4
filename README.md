@@ -1,8 +1,8 @@
 # ECSE425_P4
 Some Key Decisions made by the team
 - Avalon Interface: 
-In order to ensure the instruction fetch and load/store operations are completed within one clock cycle (1ns),
-we set the memory delay to 0.3 ns in both the data and instruction memories. In the same vein, the _waitrequest_ signal
-is now on for not an entire clock cycle, but for 0.4ns. During this time, the _readdata_ is recognized and assigned to its respective 
-signal, so that the memory component is ready for the next rising clock edge.
-- More to come...
+In order to ensure the instruction fetch and load/store (Instruction and Memory) operations are completed within one clock cycle (1ns),
+we had to use a clock divider that limited the CPU operation speed. This is because the memory must operate at least twice the input rate to generate **one output per cycle**.
+
+- Memory Component:
+In the context of the requirements outlined in the instructions document, we have noted that memory only supports word-length data. Thus, we decided to set the memory components to accommodate 8192 32b entries.
