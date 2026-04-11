@@ -42,8 +42,8 @@ begin
 			--reset counter
 			counter_register <= (others => '0');
 		elsif rising_edge(clk) then
+			--Stall takes precedence :-)
 			if stall = '1' then
-				--stall counter
 				counter_register <= counter_register;
 			else
 				--updated counter

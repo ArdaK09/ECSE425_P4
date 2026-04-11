@@ -100,15 +100,32 @@ architecture rtl of pipelined_cpu is
 		);
 	end component ALU;
 	
+	component hazard_detection_unit is
+		port(
+			--Ins
+			clk: in std_logic;
+			rs1: in std_logic_vector(4 downto 0);
+			rs2: in std_logic_vector(4 downto 0);
+			mux1Control : in std_logic;
+			mux2Control : in std_logic;
+			EX_rd : in std_logic_vector(4 downto 0);
+			MEM_rd : in std_logic_vector(4 downto 0);
+			exmem_branching_result : in std_logic;
+			--Outs
+			stall_ifid : out std_logic;
+			stall_pc : out std_logic;
+			flush_ifid : out std_logic;
+			flush_idex : out std_logic;
+			flush_exmem : out std_logic
+		);
+	end component hazard_detection_unit;
+	
 	-- Internal Combinational Signals (between stages)
  
 	--PC Output wires
 	signal pc_current_address    : std_logic_vector(31 downto 0);
 	signal pc_next_address       : std_logic_vector(31 downto 0);
 	signal currInstruction : std_logic_vector(31 downto 0) := (others => '0'); -- Output of InstrMem, wired to IF/ID reg
- 
-	--PC Stalling wires
-	signal pc_stall: std_logic := '0';
  
 	-- Branching wires
 	signal branch_taken          : std_logic;
@@ -145,7 +162,14 @@ architecture rtl of pipelined_cpu is
 	--Writeback MUX output (Either PC + 4, Data Memory, or ALU Output)
 	signal wb_write_data : std_logic_vector(31 downto 0);
 	
+	--Hazard Detection Stall Signals
+	signal pc_stall : std_logic := '0';
+	signal ifid_stall : std_logic := '0';
 	
+	--Hazard Detection Flush Signals
+	signal ifid_flush : std_logic := '0';
+	signal idex_flush : std_logic := '0';
+	signal exmem_flush : std_logic := '0';
 	
 	--ALL REGISTERED SIGNALS
 	
@@ -260,7 +284,22 @@ begin
 			rd => alu_output
 		);
 	
-	--
+	HDU : hazard_detection_uint
+		port map (
+			clk => clk,
+			rs1 => dec_registerA,
+			rs2 => dec_registerB,
+			mux1Control => dec_inputA_MUX_Control,
+			mux2Control => dec_inputB_MUX_Control,
+			EX_rd => idex_destinationRegister
+			MEM_rd => exmem_destinationRegister,
+			exmem_branching_result => exmem_branching_result,
+			stall_ifid => ifid_stall,
+			stall_pc => pc_stall,
+			flush_ifid => ifid_flush,
+			flush_idex => idex_flush,
+			flush_exmem => exmem_flush
+		);
 	
 	--Instruction Fetch Combinational Logic
 		
@@ -287,9 +326,24 @@ begin
 			ifid_currentInstructionAddress <= (others => '0');
 			ifid_nextInstructionAddress <= (others => '0');
 		elsif rising_edge(clk) then
-			ifid_currentInstruction <= currInstruction;
-			ifid_currentInstructionAddress <= pc_current_address;
-			ifid_nextInstructionAddress <= pc_next_address;
+			--Most pressing condition: Flush reg if need to
+			if ifid_flush = '1' then
+				ifid_currentInstruction <= x"00000000"; --NOP bubble
+				ifid_currentInstructionAddress <= x"00000000"; --NOP bubble
+				ifid_nextInstructionAddress <= x"00000000"; --NOP bubble
+				
+			--Next most pressing condition: Stall if need to 
+			elsif ifid_stall = '1' then
+				ifid_currentInstruction <= ifid_currentInstruction;
+				ifid_currentInstructionAddress <= ifid_currentInstructionAddress;
+				ifid_nextInstructionAddress <= ifid_nextInstructionAddress;	
+				
+			--Least pressing condition: update register
+			else
+				ifid_currentInstruction <= currInstruction;
+				ifid_currentInstructionAddress <= pc_current_address;
+				ifid_nextInstructionAddress <= pc_next_address;
+			end ifl
 		end if;
 	end process;
 	
@@ -320,26 +374,50 @@ begin
 			idex_branching_Operation <= (others => '0');
 			idex_writeback_Source_Control <= (others => '0');
 		elsif rising_edge(clk) then
-			--Pipelined from prev stage
-			idex_nextInstructionAddress <= ifid_nextInstructionAddress;
-			idex_currentInstructionAddress <= ifid_currentInstructionAddress;
-			
-			--RF Outputs
-			idex_registerAValue <= rf_rs1_data;
-			idex_registerBValue <= rf_rs2_data;
-			
-			--Decoder Outputs
-			idex_immediateValue <= dec_immediate;
-			idex_destinationRegister <= dec_destinationRegister;
-			idex_loading_notStoring <= dec_loading_notStoring;
-			idex_ALU_Operation <= dec_ALU_Operation;
-			idex_memory_WE <= dec_memory_WE;
-			idex_registerFile_WE <= dec_registerFile_WE;
-			idex_inputA_MUX_Control <= dec_inputA_MUX_Control;
-			idex_inputB_MUX_Control <= dec_inputB_MUX_Control;
-			idex_branchingEnabled <= dec_branchingEnabled;
-			idex_branching_Operation <= dec_branching_Operation;
-			idex_writeback_Source_Control <= dec_writeback_Source_Control;
+			--Flush if we need to based on HDU
+			if idex_flush = '1' then
+				--Pipelined from prev stage
+				idex_nextInstructionAddress <= x"00000000";
+				idex_currentInstructionAddress <= x"00000000";
+				
+				--RF Outputs
+				idex_registerAValue <= x"00000000";
+				idex_registerBValue <= x"00000000";
+				
+				--Decoder Outputs
+				idex_immediateValue <= x"00000000";
+				idex_destinationRegister <= x"00000000";
+				idex_loading_notStoring <= '0';
+				idex_ALU_Operation <= "0000000000";
+				idex_memory_WE <= '0';
+				idex_registerFile_WE <= '0';
+				idex_inputA_MUX_Control <= '0';
+				idex_inputB_MUX_Control <= '0';
+				idex_branchingEnabled <= '0';
+				idex_branching_Operation <= "000";
+				idex_writeback_Source_Control <= "00";
+			else
+				--Pipelined from prev stage
+				idex_nextInstructionAddress <= ifid_nextInstructionAddress;
+				idex_currentInstructionAddress <= ifid_currentInstructionAddress;
+				
+				--RF Outputs
+				idex_registerAValue <= rf_rs1_data;
+				idex_registerBValue <= rf_rs2_data;
+				
+				--Decoder Outputs
+				idex_immediateValue <= dec_immediate;
+				idex_destinationRegister <= dec_destinationRegister;
+				idex_loading_notStoring <= dec_loading_notStoring;
+				idex_ALU_Operation <= dec_ALU_Operation;
+				idex_memory_WE <= dec_memory_WE;
+				idex_registerFile_WE <= dec_registerFile_WE;
+				idex_inputA_MUX_Control <= dec_inputA_MUX_Control;
+				idex_inputB_MUX_Control <= dec_inputB_MUX_Control;
+				idex_branchingEnabled <= dec_branchingEnabled;
+				idex_branching_Operation <= dec_branching_Operation;
+				idex_writeback_Source_Control <= dec_writeback_Source_Control;
+			end if;
 		end if;
 	end process;
 	
@@ -365,20 +443,39 @@ begin
 			exmem_writeback_Source_Control <= (others => '0');
 			exmem_branching_result <= '0';
 		elsif rising_edge(clk) then
-			--ALU Output
-			exmem_ALU_Output <= alu_output;
-			
-			--Pipelined from prev stage
-			exmem_registerB_Output <= idex_registerBValue;
-			exmem_nextInstructionAddress <= idex_nextInstructionAddress;
-			exmem_destinationRegister <= idex_destinationRegister;
-			exmem_loading_notStoring <= idex_loading_notStoring;
-			exmem_memory_WE <= idex_memory_WE;
-			exmem_registerFile_WE <= idex_registerFile_WE;
-			exmem_writeback_Source_Control <= idex_writeback_Source_Control;
-			
-			--Branching Unit Output 
-			exmem_branching_result <= branch_taken;
+			--Flush if need to
+			if exmem_flush = '1' then
+				--ALU Output
+				exmem_ALU_Output <= x"00000000";
+				
+				--Pipelined from prev stage
+				exmem_registerB_Output <= x"00000000";
+				exmem_nextInstructionAddress <= x"00000000";
+				exmem_destinationRegister <= x"00000000";
+				exmem_loading_notStoring <= '0';
+				exmem_memory_WE <= '0';
+				exmem_registerFile_WE <= '0';
+				exmem_writeback_Source_Control <= "00";
+				
+				--Branching Unit Output 
+				exmem_branching_result <= '0';
+			--Otherwise pipeline as usual :-)
+			else
+				--ALU Output
+				exmem_ALU_Output <= alu_output;
+				
+				--Pipelined from prev stage
+				exmem_registerB_Output <= idex_registerBValue;
+				exmem_nextInstructionAddress <= idex_nextInstructionAddress;
+				exmem_destinationRegister <= idex_destinationRegister;
+				exmem_loading_notStoring <= idex_loading_notStoring;
+				exmem_memory_WE <= idex_memory_WE;
+				exmem_registerFile_WE <= idex_registerFile_WE;
+				exmem_writeback_Source_Control <= idex_writeback_Source_Control;
+				
+				--Branching Unit Output 
+				exmem_branching_result <= branch_taken;
+			end if;
 		end if;
 	end process;
 	
