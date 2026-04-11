@@ -108,7 +108,7 @@ architecture rtl of pipelined_cpu is
 	signal currInstruction : std_logic_vector(31 downto 0) := (others => '0'); -- Output of InstrMem, wired to IF/ID reg
  
 	--PC Stalling wires
-	signal pc_stall              : std_logic;
+	signal pc_stall: std_logic := 0;
  
 	-- Branching wires
 	signal branch_taken          : std_logic;
@@ -265,16 +265,16 @@ begin
 	--Instruction Fetch Combinational Logic
 		
 	--Send avalon request to get the next instruction from the instruction memory
-	issueNextInstruction : process(pc_current_address, i_waitrequest)
+	issueNextInstruction : process(clk, i_waitrequest)
 	begin
-		if falling_edge(i_waitrequest) then
-			currInstruction <= i_readdata;
-			i_memread       <= '0';
-		elsif not rising_edge(i_waitrequest) and pc_current_address'event then
+		if falling_edge(clk) then
 			i_address    <= to_integer(unsigned(pc_current_address));
 			i_memread    <= '1';
 			i_memwrite   <= '0';
 			i_writedata  <= (others => '0');
+		elsif falling_edge(i_waitrequest) then
+			currInstruction <= i_readdata;
+			i_memread       <= '0';
 		end if;
 	end process;
 			
@@ -388,31 +388,36 @@ begin
 	
 	--Use avalon interface to set the data memory...
 	--process is simpler than multiple combinational assignments
-	exec_mem_process: process(exmem_memory_WE, exmem_loading_notStoring, exmem_ALU_Output, exmem_registerB_Output, d_waitrequest)
+	exec_mem_process: process(clk, d_waitrequest)
 	begin
-		if falling_edge(d_waitrequest) then
+		if falling_edge(clk) then
+			--We can either load or store
+			if exmem_memory_WE = '1' then
+				if exmem_loading_notStoring = '1' then
+					d_address  <= to_integer(unsigned(exmem_ALU_Output));
+					d_memwrite <= '0';
+					d_memread  <= '1';
+				else
+					d_address   <= to_integer(unsigned(exmem_ALU_Output));
+					d_writedata <= exmem_registerB_Output;
+					d_memwrite  <= '1';
+					d_memread   <= '0';
+				end if;
+			--NOT loading or storing in this instruction
+			else
+				d_address   <= 0;
+				d_memwrite  <= '0';
+				d_memread   <= '0';
+				d_writedata <= (others => '0');
+			end if;
+		--Actually, waitrequest comes back
+		elsif falling_edge(d_waitrequest) then
 			-- Transaction complete, deassert and capture data
 			currData   <= d_readdata;
 			d_memread  <= '0';
 			d_memwrite <= '0';
 			d_address  <= 0;
 			d_writedata <= (others => '0');
-		elsif not rising_edge(d_waitrequest) and exmem_memory_WE = '1' then
-			if exmem_loading_notStoring = '1' then
-				d_address  <= to_integer(unsigned(exmem_ALU_Output));
-				d_memwrite <= '0';
-            d_memread  <= '1';
-			else
-				d_address   <= to_integer(unsigned(exmem_ALU_Output));
-            d_memwrite  <= '1';
-            d_memread   <= '0';
-            d_writedata <= exmem_registerB_Output;
-			end if;
-		else
-			d_address   <= 0;
-			d_memwrite  <= '0';
-			d_memread   <= '0';
-        d_writedata <= (others => '0');
 		end if;
 	end process;
 	
