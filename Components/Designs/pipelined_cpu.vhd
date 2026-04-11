@@ -284,14 +284,14 @@ begin
 			rd => alu_output
 		);
 	
-	HDU : hazard_detection_uint
+	HDU : hazard_detection_unit
 		port map (
 			clk => clk,
 			rs1 => dec_registerA,
 			rs2 => dec_registerB,
 			mux1Control => dec_inputA_MUX_Control,
 			mux2Control => dec_inputB_MUX_Control,
-			EX_rd => idex_destinationRegister
+			EX_rd => idex_destinationRegister,
 			MEM_rd => exmem_destinationRegister,
 			exmem_branching_result => exmem_branching_result,
 			stall_ifid => ifid_stall,
@@ -303,11 +303,12 @@ begin
 	
 	--Instruction Fetch Combinational Logic
 		
+	i_address <= to_integer(unsigned(pc_current_address));
+	
 	--Send avalon request to get the next instruction from the instruction memory
 	issueNextInstruction : process(clk, i_waitrequest)
 	begin
 		if falling_edge(clk) then
-			i_address    <= to_integer(unsigned(pc_current_address));
 			i_memread    <= '1';
 			i_memwrite   <= '0';
 			i_writedata  <= (others => '0');
@@ -343,7 +344,7 @@ begin
 				ifid_currentInstruction <= currInstruction;
 				ifid_currentInstructionAddress <= pc_current_address;
 				ifid_nextInstructionAddress <= pc_next_address;
-			end ifl
+			end if;
 		end if;
 	end process;
 	
@@ -386,7 +387,7 @@ begin
 				
 				--Decoder Outputs
 				idex_immediateValue <= x"00000000";
-				idex_destinationRegister <= x"00000000";
+				idex_destinationRegister <= "00000";
 				idex_loading_notStoring <= '0';
 				idex_ALU_Operation <= "0000000000";
 				idex_memory_WE <= '0';
@@ -451,7 +452,7 @@ begin
 				--Pipelined from prev stage
 				exmem_registerB_Output <= x"00000000";
 				exmem_nextInstructionAddress <= x"00000000";
-				exmem_destinationRegister <= x"00000000";
+				exmem_destinationRegister <= "00000";
 				exmem_loading_notStoring <= '0';
 				exmem_memory_WE <= '0';
 				exmem_registerFile_WE <= '0';

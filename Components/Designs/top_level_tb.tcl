@@ -61,6 +61,9 @@ add wave -radix hexadecimal /top_level/processor/pc_next_address
 add wave -radix hexadecimal /top_level/processor/currInstruction
 add wave /top_level/processor/pc_stall
 add wave /top_level/processor/ProgramCounterInstance/stall
+add wave /top_level/processor/BranchingUnitInstance/branch
+add wave /top_level/processor/BranchingUnitInstance/branch_taken
+add wave /top_level/processor/BranchingUnitInstance/branch_op
 
 # Data memory internals
 add wave -divider "Data Memory Internals"

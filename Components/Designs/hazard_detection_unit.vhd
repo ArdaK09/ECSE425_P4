@@ -12,7 +12,7 @@ entity hazard_detection_unit is
 			mux2Control : in std_logic;
 			EX_rd : in std_logic_vector(4 downto 0);
 			MEM_rd : in std_logic_vector(4 downto 0);
-			exmem_branching_result : in std_logic;
+			exmem_branching_result : in std_logic := '0';
 			--Outs
 			stall_ifid : out std_logic;
 			stall_pc : out std_logic;
