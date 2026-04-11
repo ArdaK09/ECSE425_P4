@@ -16,6 +16,7 @@ architecture rtl of program_counter is
 	signal counter_register : std_logic_vector(31 downto 0) := (others => '0');
 	signal counter_next : std_logic_vector(31 downto 0);
 	signal counter_plus4 : std_logic_vector(31 downto 0);
+	signal start: std_logic := '1';
 begin
 	--Combinational logic
 	--Set counter + (size of word addr)
@@ -43,7 +44,10 @@ begin
 			counter_register <= (others => '0');
 		elsif rising_edge(clk) then
 			--Stall takes precedence :-)
-			if stall = '1' then
+			if start = '1' then
+				start <= '0';
+				counter_register <= counter_register;
+			elsif stall = '1' then
 				counter_register <= counter_register;
 			else
 				--updated counter

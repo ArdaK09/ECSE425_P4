@@ -163,7 +163,7 @@ architecture rtl of pipelined_cpu is
 	signal wb_write_data : std_logic_vector(31 downto 0);
 	
 	--Hazard Detection Stall Signals
-	signal pc_stall : std_logic := '0';
+	signal pc_stall : std_logic := '1';
 	signal ifid_stall : std_logic := '0';
 	
 	--Hazard Detection Flush Signals
@@ -303,12 +303,12 @@ begin
 	
 	--Instruction Fetch Combinational Logic
 		
-	i_address <= to_integer(unsigned(pc_current_address));
+	i_address <= to_integer(unsigned(pc_current_address)); 
 	
 	--Send avalon request to get the next instruction from the instruction memory
 	issueNextInstruction : process(clk, i_waitrequest)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 			i_memread    <= '1';
 			i_memwrite   <= '0';
 			i_writedata  <= (others => '0');
@@ -483,27 +483,25 @@ begin
 	--
 	
 	--Memory Stage Combinational Logic
-	
+	d_address  <= to_integer(unsigned(exmem_ALU_Output));
+
 	--Use avalon interface to set the data memory...
 	--process is simpler than multiple combinational assignments
 	exec_mem_process: process(clk, d_waitrequest)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 			--We can either load or store
 			if exmem_memory_WE = '1' then
 				if exmem_loading_notStoring = '1' then
-					d_address  <= to_integer(unsigned(exmem_ALU_Output));
 					d_memwrite <= '0';
 					d_memread  <= '1';
 				else
-					d_address   <= to_integer(unsigned(exmem_ALU_Output));
 					d_writedata <= exmem_registerB_Output;
 					d_memwrite  <= '1';
 					d_memread   <= '0';
 				end if;
 			--NOT loading or storing in this instruction
 			else
-				d_address   <= 0;
 				d_memwrite  <= '0';
 				d_memread   <= '0';
 				d_writedata <= (others => '0');
@@ -514,7 +512,6 @@ begin
 			currData   <= d_readdata;
 			d_memread  <= '0';
 			d_memwrite <= '0';
-			d_address  <= 0;
 			d_writedata <= (others => '0');
 		end if;
 	end process;

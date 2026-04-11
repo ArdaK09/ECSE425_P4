@@ -98,7 +98,6 @@ mem load -infile $program_file -format binary /top_level/instruction_memory/ram_
 # Continue reset for remaining ~3 cycles, then deassert
 run 2999ps
 force -freeze /top_level/reset 0 0ns
- 
 # ──────────────────────────────────────────────
 # Run simulation
 # ──────────────────────────────────────────────
