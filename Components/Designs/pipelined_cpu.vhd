@@ -108,7 +108,7 @@ architecture rtl of pipelined_cpu is
 	signal currInstruction : std_logic_vector(31 downto 0) := (others => '0'); -- Output of InstrMem, wired to IF/ID reg
  
 	--PC Stalling wires
-	signal pc_stall: std_logic := 0;
+	signal pc_stall: std_logic := '0';
  
 	-- Branching wires
 	signal branch_taken          : std_logic;
