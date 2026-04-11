@@ -51,14 +51,14 @@ BEGIN
 	waitreq_w_proc: PROCESS (memwrite)
 	BEGIN
 		IF(memwrite'event AND memwrite = '1')THEN
-			write_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5ns;
+			write_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5 ns;
 		END IF;
 	END PROCESS;
 
 	waitreq_r_proc: PROCESS (memread)
 	BEGIN
 		IF(memread'event AND memread = '1')THEN
-			read_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5ns;
+			read_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5 ns;
 		END IF;
 	END PROCESS;
 	waitrequest <= write_waitreq_reg and read_waitreq_reg;

@@ -61,7 +61,6 @@ begin
 					nextState   <= ControlHazard;
 					flush_ifid  <= '1';
 					flush_idex  <= '1';
-					flush_exmem <= '1';
 
 				-- Check rs1 and rs2 independently, take worst case
 				else
