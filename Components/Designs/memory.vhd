@@ -5,7 +5,7 @@ USE ieee.numeric_std.all;
 ENTITY memory IS
 	GENERIC(
 		ram_size : INTEGER := 8192; -- 32768 Bytes = 8192 words
-		mem_delay : time := 0.3 ns
+		mem_delay : time := 1.1 ns
 	);
 	PORT (
 		clock: IN STD_LOGIC;
@@ -51,14 +51,14 @@ BEGIN
 	waitreq_w_proc: PROCESS (memwrite)
 	BEGIN
 		IF(memwrite'event AND memwrite = '1')THEN
-			write_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.4ns;
+			write_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5ns;
 		END IF;
 	END PROCESS;
 
 	waitreq_r_proc: PROCESS (memread)
 	BEGIN
 		IF(memread'event AND memread = '1')THEN
-			read_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.4ns;
+			read_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + 0.5ns;
 		END IF;
 	END PROCESS;
 	waitrequest <= write_waitreq_reg and read_waitreq_reg;

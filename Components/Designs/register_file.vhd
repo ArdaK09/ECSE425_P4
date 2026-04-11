@@ -36,8 +36,18 @@ ARCHITECTURE rtl OF register_file IS
 	-- Synchronous write
 	-- reset first
 	-- ---------------------------------------------------------------------------
+	
+	
 	write_proc : PROCESS(clk)
 		BEGIN
+		--copied from mem
+			IF(now < 1 ps)THEN
+				For i in 0 to 31 LOOP
+					all_regs(i) <= std_logic_vector(to_unsigned(0,32)); -- Init to 0
+				END LOOP;
+			end if;
+			
+			
 			IF rising_edge(clk) or falling_edge(clk) THEN
 				IF reset = '1' THEN
 				-- Clear all 32 registers synchronously
