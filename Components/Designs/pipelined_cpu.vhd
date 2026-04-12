@@ -111,6 +111,7 @@ architecture rtl of pipelined_cpu is
 			EX_rd : in std_logic_vector(4 downto 0);
 			MEM_rd : in std_logic_vector(4 downto 0);
 			exmem_branching_result : in std_logic;
+			branchingEnabled : in std_logic;
 			--Outs
 			stall_ifid : out std_logic;
 			stall_pc : out std_logic;
@@ -294,6 +295,7 @@ begin
 			EX_rd => idex_destinationRegister,
 			MEM_rd => exmem_destinationRegister,
 			exmem_branching_result => exmem_branching_result,
+			branchingEnabled => dec_branchingEnabled,
 			stall_ifid => ifid_stall,
 			stall_pc => pc_stall,
 			flush_ifid => ifid_flush,

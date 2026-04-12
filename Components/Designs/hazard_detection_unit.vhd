@@ -13,6 +13,7 @@ entity hazard_detection_unit is
 			EX_rd : in std_logic_vector(4 downto 0);
 			MEM_rd : in std_logic_vector(4 downto 0);
 			exmem_branching_result : in std_logic := '0';
+			branchingEnabled : in std_logic := '0';
 			--Outs
 			stall_ifid : out std_logic;
 			stall_pc : out std_logic;
@@ -43,7 +44,7 @@ begin
 		end if;
 	end process;
 
-	combinationalLogic : process(state, rs1, rs2, mux1Control, mux2Control, EX_rd, MEM_rd, exmem_branching_result)
+	combinationalLogic : process(state, rs1, rs2, mux1Control, mux2Control, EX_rd, MEM_rd, exmem_branching_result, branchingEnabled)
 	begin
 		-- Default all outputs to avoid latches
 		stall_ifid  <= '0';
@@ -66,7 +67,7 @@ begin
 				else
 				-- Two cycle hazard (back to back data dependency)
 				-- Checked by comparing the inputs to ALU and ID/EX register (prev instr) return address
-					if (rs1 /= "00000" and mux1Control = '0' and rs1 = EX_rd) or (rs2 /= "00000" and mux2Control = '0' and rs2 = EX_rd) then
+					if (rs1 /= "00000" and (mux1Control = '0' or branchingEnabled = '1') and rs1 = EX_rd) or (rs2 /= "00000" and (mux2Control = '0' or branchingEnabled = '1') and rs2 = EX_rd) then
 						nextState  <= TwoCycleHazardCycle1;
 						stall_ifid <= '1';
 						stall_pc   <= '1';
@@ -74,7 +75,7 @@ begin
 
 					-- One cycle hazard (one-apart data dependency)
 					-- Checked similar to above
-					elsif (rs1 /= "00000" and mux1Control = '0' and rs1 = MEM_rd) or ( rs2 /= "00000" and mux2Control = '0' and rs2 = MEM_rd) then
+					elsif (rs1 /= "00000" and (mux1Control = '0' or branchingEnabled = '1') and rs1 = MEM_rd) or ( rs2 /= "00000" and (mux2Control = '0' or branchingEnabled = '1') and rs2 = MEM_rd) then
 						nextState  <= OneCycleHazardCycle1;
 						stall_ifid <= '1';
 						stall_pc   <= '1';
