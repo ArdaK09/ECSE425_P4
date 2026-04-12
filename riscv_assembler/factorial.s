@@ -1,22 +1,15 @@
-main:
-    addi  a0, x0, 5       # set n = 5
-    jal   fact              # jump and link
-
+addi  a0, x0, 5 
+jal  a1, fact
 stop: 
-    j     stop              # infinite loop
-
-
-
+beq, x0, x0, stop 
 fact:
-    add   t0, x0, a0      # move argument to temporary
-    addi  a0, x0, 1       # initialize return value to 1
-
+add   t0, x0, a0
+addi  a0, x0, 1 
 fact_l:
-    slti  t1, t0, 2         # t1 = t0<2 ? 1 : 0
-    bne   t1, x0, done    # if i<2, we're done!
-    mul   a0, a0, t0        
-    addi  t0, t0, -1        # i--
-    jal   x0, fact_l      # jump to loop
-
+slti  t1, t0, 2
+bne   t1, x0, done 
+mul   a0, a0, t0        
+addi  t0, t0, -1 
+jal   x0, fact_l 
 done:
-    jalr  x0, ra, 0       # return
+jalr  x0, ra, 0 

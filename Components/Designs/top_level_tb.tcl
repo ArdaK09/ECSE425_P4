@@ -80,6 +80,18 @@ add wave /top_level/d_memread
 add wave -radix hexadecimal /top_level/d_readdata
 add wave /top_level/d_waitrequest
 
+#Memory Stage internals
+add wave -divider "Memory Stage Internals"
+add wave /top_level/processor/exmem_branching_result
+add wave /top_level/processor/exmem_ALU_Output
+add wave /top_level/processor/exmem_registerB_Output
+add wave /top_level/processor/exmem_destinationRegister
+add wave /top_level/processor/exmem_registerFile_WE
+add wave /top_level/processor/exmem_nextInstructionAddress
+add wave /top_level/processor/exmem_loading_notStoring
+add wave /top_level/processor/exmem_memory_WE
+add wave /top_level/processor/exmem_writeback_Source_Control
+
 # ──────────────────────────────────────────────
 # Clock & reset generation
 # ──────────────────────────────────────────────

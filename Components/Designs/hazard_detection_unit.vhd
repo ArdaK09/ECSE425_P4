@@ -57,11 +57,15 @@ begin
 		case state is
 			when IDLE =>
 				-- Control hazard highest priority
-				-- Flush first three registers
+				-- Flush first three registers.
+				--Note: Flushing exmem register happens structurally by the vhdl delta cycling!!
+				--Since ifid, idex, and exmem are updated concurrently on the rising edge of the clock,
+				--exmem structually gets zeroed through flushing both ifid and idex...
 				if exmem_branching_result = '1' then
 					nextState   <= ControlHazard;
 					flush_ifid  <= '1';
 					flush_idex  <= '1';
+					flush_exmem <= '1';
 
 				-- Check rs1 and rs2 independently, take worst case
 				else
