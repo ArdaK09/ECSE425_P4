@@ -1,5 +1,7 @@
     li x6, 0xF0F0F0F0  # x6 = 0xF0F0F0F0
     li x7, 0x0F0F0F0F  # x7 = 0x0F0F0F0F	
+	nop
+	nop
     or x8, x6, x7
     and x9, x6, x7
     li x1, 10   # x1 = 10
