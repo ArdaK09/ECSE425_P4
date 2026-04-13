@@ -426,7 +426,7 @@ begin
 	
 	
 	--Instruction Execution Combinational Logic
-	
+	--These model MUX Behavior
 	alu_input_a <= idex_currentInstructionAddress when idex_inputA_MUX_Control = '1' else idex_registerAValue;
 	alu_input_b <= idex_immediateValue when idex_inputB_MUX_Control = '1' else idex_registerBValue;
 
@@ -485,7 +485,7 @@ begin
 	--
 	
 	--Memory Stage Combinational Logic
-	d_address  <= to_integer(unsigned(exmem_ALU_Output));
+	d_address  <= to_integer(unsigned(exmem_ALU_Output)) when exmem_memory_WE = '1' else 0;
 
 	--Use avalon interface to set the data memory...
 	--process is simpler than multiple combinational assignments

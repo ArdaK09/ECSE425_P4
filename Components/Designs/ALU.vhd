@@ -18,7 +18,7 @@ begin
     process(alu_op, rs1, rs2)
     begin
         case alu_op is
-
+            --Follows format of (funct3 & funct7 for most inputs)
             when "0000000000" =>  -- ADD (0x0 & 0x00)
                 rd <= std_logic_vector(unsigned(rs1) + unsigned(rs2));
 
