@@ -1,5 +1,5 @@
 addi  a0, x0, 5 
-jal  a1, fact
+jal  ra, fact
 stop: 
 beq, x0, x0, stop 
 fact:
