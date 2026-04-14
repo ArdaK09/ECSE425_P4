@@ -1,6 +1,10 @@
 # ECSE425 P4 — Pipelined RISC-V CPU
 
 ## How to Run
+- Open Model sim, 
+- Add all files to a project,
+- Put machine code into `program.txt`
+- Then run the commands found below 
 
 ### Basic Testbench
 ```tcl
